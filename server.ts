@@ -187,7 +187,25 @@ async function getSettingsFromFirestore(): Promise<any> {
   try {
     const docSnap = await getDoc(doc(firestoreDb, "settings", "global"));
     if (docSnap.exists()) {
-      return docSnap.data();
+      const data = docSnap.data();
+      const normalized = { ...data };
+      
+      const mapKeys = [
+        ["recipient_phone", "whatsapp_recipient_phone"],
+        ["phone_number_id", "whatsapp_phone_number_id"],
+        ["access_token", "whatsapp_access_token"],
+        ["cron_time", "whatsapp_cron_time"],
+        ["fixed_time", "whatsapp_fixed_time"],
+      ];
+
+      for (const [unprefixed, prefixed] of mapKeys) {
+        const val = data[unprefixed] !== undefined ? data[unprefixed] : data[prefixed];
+        if (val !== undefined) {
+          normalized[unprefixed] = val;
+          normalized[prefixed] = val;
+        }
+      }
+      return normalized;
     }
   } catch (err) {
     console.error("Error reading global settings from Firestore:", err);
@@ -843,12 +861,30 @@ async function startServer() {
   app.post("/api/whatsapp-config", async (req, res) => {
     try {
       const body = req.body;
+      const dataToSave: any = {};
+      
+      const mapKeys = [
+        ["recipient_phone", "whatsapp_recipient_phone"],
+        ["phone_number_id", "whatsapp_phone_number_id"],
+        ["access_token", "whatsapp_access_token"],
+        ["cron_time", "whatsapp_cron_time"],
+        ["fixed_time", "whatsapp_fixed_time"],
+      ];
+
       for (const [key, val] of Object.entries(body)) {
         if (val !== undefined) {
-          await setDoc(doc(firestoreDb, "settings", "global"), { [key]: val }, { merge: true });
+          dataToSave[key] = val;
+          for (const [unprefixed, prefixed] of mapKeys) {
+            if (key === unprefixed) {
+              dataToSave[prefixed] = val;
+            } else if (key === prefixed) {
+              dataToSave[unprefixed] = val;
+            }
+          }
         }
       }
-      
+
+      await setDoc(doc(firestoreDb, "settings", "global"), dataToSave, { merge: true });
       await runSchedulerCheck();
       res.json({ success: true });
     } catch (error: any) {
@@ -856,7 +892,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/scheduler-tick", async (req, res) => {
+  app.all("/api/scheduler-tick", async (req, res) => {
     try {
       await runSchedulerCheck();
       res.json({ success: true });
