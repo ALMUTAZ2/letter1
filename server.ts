@@ -187,7 +187,19 @@ async function getSettingsFromFirestore(): Promise<any> {
   try {
     const docSnap = await getDoc(doc(firestoreDb, "settings", "global"));
     if (docSnap.exists()) {
-      return docSnap.data();
+      const data = docSnap.data() || {};
+      const normalized: any = { ...data };
+      
+      const managerKeys = ["recipient_phone", "phone_number_id", "access_token", "cron_time", "fixed_time"];
+      for (const k of managerKeys) {
+        // Try to get value using either name (e.g. recipient_phone or whatsapp_recipient_phone)
+        const val = data[k] !== undefined ? data[k] : data[`whatsapp_${k}`];
+        if (val !== undefined) {
+          normalized[k] = val;
+          normalized[`whatsapp_${k}`] = val;
+        }
+      }
+      return normalized;
     }
   } catch (err) {
     console.error("Error reading global settings from Firestore:", err);
@@ -856,7 +868,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/scheduler-tick", async (req, res) => {
+  app.all("/api/scheduler-tick", async (req, res) => {
     try {
       await runSchedulerCheck();
       res.json({ success: true });
