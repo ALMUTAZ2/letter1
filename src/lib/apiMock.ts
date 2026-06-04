@@ -95,17 +95,35 @@ const getSeededLetters = (): Letter[] => {
 
 // Seeder checks for Firestore database
 async function ensureFirestoreSeeded(): Promise<void> {
+  // We do not seed default letters automatically anymore, as we want a clean look displaying only user-entered letters.
+  // We clean up existing default templates from Firestore and localStorage (IDs 1, 2, 3, 4) to ensure the system is completely clean.
   try {
-    const lettersSnap = await getDocs(collection(db, "letters"));
-    if (lettersSnap.empty) {
-      console.log("Seeding Cloud Firestore with default letters...");
-      const seeds = getSeededLetters();
-      for (const letter of seeds) {
-        await setDoc(doc(db, "letters", String(letter.id)), letter);
+    const seededIds = ["1", "2", "3", "4"];
+    for (const id of seededIds) {
+      const docRef = doc(db, "letters", id);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && (data.entity_source === "أمانة منطقة الرياض" || data.entity_source === "هيئة تطوير بوابة الدرعية" || data.entity_source === "رئاسة بلدية الروضة" || data.entity_source === "وزارة الاستثمار")) {
+          await deleteDoc(docRef);
+          console.log(`Deleted default template letter matching ID: ${id}`);
+        }
+      }
+    }
+    
+    // Cleanup localStorage copy if it contains templates
+    const localS = localStorage.getItem("mock_letters");
+    if (localS) {
+      const parsedS = JSON.parse(localS) as any[];
+      const filteredS = parsedS.filter(l => 
+        l.id !== 1 && l.id !== 2 && l.id !== 3 && l.id !== 4
+      );
+      if (filteredS.length !== parsedS.length) {
+        localStorage.setItem("mock_letters", JSON.stringify(filteredS));
       }
     }
   } catch (err) {
-    console.warn("Could not seed letters due to rules or connectivity:", err);
+    console.warn("Could not clean up template letters:", err);
   }
 
   try {
@@ -147,9 +165,8 @@ async function getFirestoreLetters(): Promise<Letter[]> {
     // LocalStorage fallback for true robustness
     const lettersStr = localStorage.getItem("mock_letters");
     if (!lettersStr) {
-      const seed = getSeededLetters();
-      localStorage.setItem("mock_letters", JSON.stringify(seed));
-      return seed;
+      localStorage.setItem("mock_letters", JSON.stringify([]));
+      return [];
     }
     return JSON.parse(lettersStr);
   }
@@ -160,7 +177,7 @@ async function saveFirestoreLetter(letter: Letter): Promise<void> {
     await setDoc(doc(db, "letters", String(letter.id)), letter);
   } catch (err) {
     console.error("Firestore saveFirestoreLetter failed, using localStorage fallback:", err);
-    const fallbackLetters = localStorage.getItem("mock_letters") ? JSON.parse(localStorage.getItem("mock_letters")!) : getSeededLetters();
+    const fallbackLetters = localStorage.getItem("mock_letters") ? JSON.parse(localStorage.getItem("mock_letters")!) : [];
     const filtered = (fallbackLetters as Letter[]).filter(l => l.id !== letter.id);
     filtered.push(letter);
     localStorage.setItem("mock_letters", JSON.stringify(filtered));
@@ -172,7 +189,7 @@ async function deleteFirestoreLetter(id: number): Promise<void> {
     await deleteDoc(doc(db, "letters", String(id)));
   } catch (err) {
     console.error("Firestore deleteFirestoreLetter failed, using localStorage fallback:", err);
-    const fallbackLetters = localStorage.getItem("mock_letters") ? JSON.parse(localStorage.getItem("mock_letters")!) : getSeededLetters();
+    const fallbackLetters = localStorage.getItem("mock_letters") ? JSON.parse(localStorage.getItem("mock_letters")!) : [];
     const filtered = (fallbackLetters as Letter[]).filter(l => l.id !== id);
     localStorage.setItem("mock_letters", JSON.stringify(filtered));
   }

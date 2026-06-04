@@ -115,16 +115,22 @@ const getSeededLetters = () => {
 
 async function ensureSeedAndSetup() {
   try {
-    const lettersSnap = await getDocs(collection(firestoreDb, "letters"));
-    if (lettersSnap.empty) {
-      console.log("[Server Init] Seeding Firestore with letters...");
-      const seeds = getSeededLetters();
-      for (const letter of seeds) {
-        await setDoc(doc(firestoreDb, "letters", String(letter.id)), letter);
+    // We do not seed default letters automatically anymore, as we want a clean look displaying only user-entered letters.
+    // We clean up existing default templates from Firestore on startup (IDs 1, 2, 3, 4) to keep the app pristine.
+    const seededIds = ["1", "2", "3", "4"];
+    for (const id of seededIds) {
+      const docRef = doc(firestoreDb, "letters", id);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data && (data.entity_source === "أمانة منطقة الرياض" || data.entity_source === "هيئة تطوير بوابة الدرعية" || data.entity_source === "رئاسة بلدية الروضة" || data.entity_source === "وزارة الاستثمار")) {
+          await deleteDoc(docRef);
+          console.log(`[Server] Deleted template letter matching ID: ${id}`);
+        }
       }
     }
   } catch (err) {
-    console.error("[Server Init] Letters seeding failed:", err);
+    console.error("[Server Init] Letters cleanup/checks failed:", err);
   }
 
   try {
