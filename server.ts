@@ -1,188 +1,241 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import cron from "node-cron";
-import { format, addDays, isBefore, startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns";
+import { format, addDays, startOfWeek, endOfWeek } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { Resend } from "resend";
 import dotenv from "dotenv";
 import axios from "axios";
+import { readFileSync, writeFileSync } from "fs";
+
+// Firebase Server sdk setup
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc } from "firebase/firestore";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("letters.db");
+// Read Firebase config from file safely
+const firebaseConfig = JSON.parse(readFileSync("./firebase-applet-config.json", "utf-8"));
+const firebaseApp = initializeApp(firebaseConfig);
+const firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const TIMEZONE = "Asia/Riyadh";
 
-// Initialize Database
-try {
-  // Drop table to apply the major schema change cleanly
-  db.exec("DROP TABLE IF EXISTS letters;");
-} catch (e) {
-  console.error("Migration error:", e);
+const getSeededLetters = () => {
+  const now = new Date();
+  const formatYMD = (d: Date) => d.toISOString().split("T")[0];
+  const addDaysHelper = (d: Date, days: number) => {
+    const res = new Date(d);
+    res.setDate(res.getDate() + days);
+    return res;
+  };
+  
+  return [
+    {
+      id: 1,
+      entity_source: "أمانة منطقة الرياض",
+      letter_number: "100245",
+      letter_date: formatYMD(addDaysHelper(now, -4)),
+      category: "اعتماد خطة تدعيم شبكة الجهد المتوسط بحي اليرموك",
+      responsible_department: "دائرة تخطيط الشبكات",
+      owner: "م. فيصل المطيري",
+      priority: "عالية",
+      due_date: formatYMD(addDaysHelper(now, -3)),
+      status: "جديد",
+      escalation: "حرج جداً لدواعٍ فنية",
+      notes: "تم مراجعة المخططات المبادئية للحي وتحتاج تصديق المدير المالي للمنطقة الشرقية.",
+      action_taken: "بانتظار الرد",
+      created_at: new Date(addDaysHelper(now, -4)).toISOString(),
+      updated_at: new Date(addDaysHelper(now, -4)).toISOString()
+    },
+    {
+      id: 2,
+      entity_source: "هيئة تطوير بوابة الدرعية",
+      letter_number: "100289",
+      letter_date: formatYMD(addDaysHelper(now, -3)),
+      category: "طلب موافقة فنية لربط محطة تحويل فرعية تابعة لمشروع تجاري",
+      responsible_department: "دائرة التشغيل والصيانة – الشرق",
+      owner: "أ. خالد القحطاني",
+      priority: "عالية",
+      due_date: formatYMD(addDaysHelper(now, -2)),
+      status: "جديد",
+      escalation: "طلب عاجل من الهيئة",
+      notes: "توصية بربط المحطة مع مغذي المغرزات الرئيسي لتحقيق التكرارية المطلوبة.",
+      action_taken: "بانتظار الرد",
+      created_at: new Date(addDaysHelper(now, -3)).toISOString(),
+      updated_at: new Date(addDaysHelper(now, -3)).toISOString()
+    },
+    {
+      id: 3,
+      entity_source: "رئاسة بلدية الروضة",
+      letter_number: "100311",
+      letter_date: formatYMD(addDaysHelper(now, -2)),
+      category: "شكوى من انقطاع الخدمة الكهربائية بإنارة الشوارع بحي القدس",
+      responsible_department: "دائرة التشغيل والصيانة – الشرق",
+      owner: "م. سامر العنزي",
+      priority: "متوسطة",
+      due_date: formatYMD(addDaysHelper(now, 1)),
+      status: "الحاقي",
+      escalation: "لا يوجد",
+      notes: "جاري فحص كابلات الجهد المنخفض بالحي لتفادي التكرار وسحب خط بديل.",
+      action_taken: "بانتظار الرد",
+      created_at: new Date(addDaysHelper(now, -2)).toISOString(),
+      updated_at: new Date(addDaysHelper(now, -2)).toISOString()
+    },
+    {
+      id: 4,
+      entity_source: "وزارة الاستثمار",
+      letter_number: "100192",
+      letter_date: formatYMD(addDaysHelper(now, -10)),
+      category: "تحديث اشتراطات ربط الطاقة للمشروعات ذات الهوية الأجنبية بالرياض",
+      responsible_department: "دائرة دعم التشغيل والصيانة",
+      owner: "م. ناصر الحارثي",
+      priority: "منخفضة",
+      due_date: formatYMD(addDaysHelper(now, -5)),
+      status: "مغلق",
+      escalation: "لا يوجد",
+      notes: "تم إرسال الخطاب الصادر واستلام إشعار تأكيد الاستلام من الوزارة بنجاح وتم إرفاق رقم الصادر المعتمد.",
+      outgoing_letter_number: "ص-209-X",
+      outgoing_letter_date: formatYMD(addDaysHelper(now, -6)),
+      action_taken: "تم الرد",
+      close_date: formatYMD(addDaysHelper(now, -6)),
+      created_at: new Date(addDaysHelper(now, -10)).toISOString(),
+      updated_at: new Date(addDaysHelper(now, -10)).toISOString()
+    }
+  ];
+};
+
+// ---------------------- Firestore Operations Helpers on server ----------------------
+
+async function ensureSeedAndSetup() {
+  try {
+    const lettersSnap = await getDocs(collection(firestoreDb, "letters"));
+    if (lettersSnap.empty) {
+      console.log("[Server Init] Seeding Firestore with letters...");
+      const seeds = getSeededLetters();
+      for (const letter of seeds) {
+        await setDoc(doc(firestoreDb, "letters", String(letter.id)), letter);
+      }
+    }
+  } catch (err) {
+    console.error("[Server Init] Letters seeding failed:", err);
+  }
+
+  try {
+    const usersSnap = await getDocs(collection(firestoreDb, "users"));
+    if (usersSnap.empty) {
+      console.log("[Server Init] Seeding Firestore users...");
+      await setDoc(doc(firestoreDb, "users", "1"), { email: "manager@example.com", name: "المدير العام", role: "manager" });
+      await setDoc(doc(firestoreDb, "users", "2"), { email: "staff@example.com", name: "موظف المتابعة", role: "staff" });
+    }
+  } catch (err) {
+    console.error("[Server Init] Users seeding failed:", err);
+  }
+
+  try {
+    const settingsSnap = await getDoc(doc(firestoreDb, "settings", "global"));
+    if (!settingsSnap.exists()) {
+      console.log("[Server Init] Seeding Firestore default configurations...");
+      const initialSettings = {
+        whatsapp_recipient_phone: "+966507668366",
+        whatsapp_phone_number_id: "1148865668308769",
+        whatsapp_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+        whatsapp_cron_time: "12:15",
+        whatsapp_fixed_time: "12:19",
+        contributor_recipient_phone: "+966566889475",
+        contributor_phone_number_id: "1148865668308769",
+        contributor_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+        contributor_cron_time: "12:20",
+        contributor_fixed_time: "12:25"
+      };
+      await setDoc(doc(firestoreDb, "settings", "global"), initialSettings);
+    }
+  } catch (err) {
+    console.error("[Server Init] Settings seeding failed:", err);
+  }
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS letters (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    entity_source TEXT NOT NULL,
-    letter_number TEXT UNIQUE NOT NULL,
-    letter_date TEXT NOT NULL,
-    category TEXT,
-    responsible_department TEXT,
-    owner TEXT,
-    priority TEXT CHECK(priority IN ('عالية', 'متوسطة', 'منخفضة')),
-    due_date TEXT NOT NULL,
-    status TEXT CHECK(status IN ('جديد', 'الحاقي', 'مغلق')) DEFAULT 'جديد',
-    escalation TEXT,
-    action_taken TEXT,
-    close_date TEXT,
-    outgoing_letter_number TEXT,
-    outgoing_letter_date TEXT,
-    notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    name TEXT,
-    role TEXT CHECK(role IN ('manager', 'staff')) NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS whatsapp_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    recipient_phone TEXT NOT NULL,
-    message_content TEXT NOT NULL,
-    status TEXT NOT NULL,
-    error_message TEXT,
-    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-// Seed initial manager & staff if not exists
-const seedUser = db.prepare("INSERT OR IGNORE INTO users (email, name, role) VALUES (?, ?, ?)");
-seedUser.run("manager@example.com", "المدير العام", "manager");
-seedUser.run("staff@example.com", "موظف المتابعة", "staff");
-
-// Seed initial settings
-const insertSetting = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
-insertSetting.run("whatsapp_recipient_phone", "+966507668366"); // Standard placeholder that can be rewritten in upper bar
-insertSetting.run("whatsapp_phone_number_id", "1148865668308769");
-insertSetting.run("whatsapp_access_token", "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD");
-insertSetting.run("whatsapp_cron_hour", "0 12");
-insertSetting.run("whatsapp_cron_time", "12:15");
-insertSetting.run("whatsapp_fixed_time", "12:19");
-
-insertSetting.run("contributor_recipient_phone", "+966566889475");
-insertSetting.run("contributor_phone_number_id", "1148865668308769");
-insertSetting.run("contributor_access_token", "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD");
-insertSetting.run("contributor_cron_time", "12:20");
-insertSetting.run("contributor_fixed_time", "12:25");
-
-// Enforce standard test recipient on startup to ensure it matches the user's whitelist
-db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('whatsapp_recipient_phone', '+966507668366')").run();
-db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('contributor_recipient_phone', '+966566889475')").run();
-
-// Seed mock letters representing utility business cases
-const letterCount = db.prepare("SELECT COUNT(*) as count FROM letters").get() as any;
-if (letterCount.count === 0) {
-  const seedLetter = db.prepare(`
-    INSERT INTO letters (
-      entity_source, letter_number, letter_date, category,
-      responsible_department, owner, priority, due_date,
-      status, escalation, notes, outgoing_letter_number, outgoing_letter_date, action_taken, close_date
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  const nowTime = toZonedTime(new Date(), TIMEZONE);
-  const fmtDate = (d: Date) => format(d, "yyyy-MM-dd");
-
-  seedLetter.run(
-    "أمانة منطقة الرياض",
-    "100245",
-    fmtDate(addDays(nowTime, -4)),
-    "اعتماد خطة تدعيم شبكة الجهد المتوسط بحي اليرموك",
-    "דائرة تخطيط الشبكات",
-    "م. فيصل المطيري",
-    "عالية",
-    fmtDate(addDays(nowTime, -3)), // Overdue
-    "جديد",
-    "حرج جداً لدواعٍ فنية",
-    "تم مراجعة المخططات المبادئية للحي وتحتاج تصديق المدير المالي للمنطقة الشرقية.",
-    "",
-    "",
-    "بانتظار الرد",
-    ""
-  );
-
-  seedLetter.run(
-    "هيئة تطوير بوابة الدرعية",
-    "100289",
-    fmtDate(addDays(nowTime, -3)),
-    "طلب موافقة فنية لربط محطة تحويل فرعية تابعة لمشروع تجاري",
-    "دائرة التشغيل والصيانة – الشرق",
-    "أ. خالد القحطاني",
-    "عالية",
-    fmtDate(addDays(nowTime, -2)), // Overdue
-    "جديد",
-    "طلب عاجل من الهيئة",
-    "توصية بربط المحطة مع مغذي المغرزات الرئيسي لتحقيق التكرارية المطلوبة.",
-    "",
-    "",
-    "بانتظار الرد",
-    ""
-  );
-
-  seedLetter.run(
-    "رئاسة بلدية الروضة",
-    "100311",
-    fmtDate(addDays(nowTime, -2)),
-    "شكوى من انقطاع الخدمة الكهربائية بإنارة الشوارع بحي القدس",
-    "دائرة التشغيل والصيانة – الشرق",
-    "م. سامر العنزي",
-    "متوسطة",
-    fmtDate(addDays(nowTime, 1)), // Future due
-    "الحاقي",
-    "لا يوجد",
-    "جاري فحص كابلات الجهد المنخفض بالحي لتفادي التكرار وسحب خط بديل.",
-    "",
-    "",
-    "بانتظار الرد",
-    ""
-  );
-
-  seedLetter.run(
-    "وزارة الاستثمار",
-    "100192",
-    fmtDate(addDays(nowTime, -10)),
-    "تحديث اشتراطات ربط الطاقة للمشروعات ذات الهوية الأجنبية بالرياض",
-    "دائرة دعم التشغيل والصيانة",
-    "م. ناصر الحارثي",
-    "منخفضة",
-    fmtDate(addDays(nowTime, -5)),
-    "مغلق",
-    "لا يوجد",
-    "تم إرسال الخطاب الصادر واستلام إشعار تأكيد الاستلام من الوزارة بنجاح وتم إرفاق رقم الصادر المعتمد.",
-    "ص-209-X",
-    fmtDate(addDays(nowTime, -6)),
-    "تم الرد",
-    fmtDate(addDays(nowTime, -6))
-  );
+async function getLettersFromFirestore(): Promise<any[]> {
+  await ensureSeedAndSetup();
+  try {
+    const snapshot = await getDocs(collection(firestoreDb, "letters"));
+    const list: any[] = [];
+    snapshot.forEach((d) => {
+      list.push(d.data());
+    });
+    return list;
+  } catch (err) {
+    console.error("Error reading from Firestore:", err);
+    return [];
+  }
 }
 
-// Helper to calculate working days elapsed (excluding Friday and Saturday) on backend
+async function getSettingsFromFirestore(): Promise<any> {
+  await ensureSeedAndSetup();
+  try {
+    const docSnap = await getDoc(doc(firestoreDb, "settings", "global"));
+    if (docSnap.exists()) {
+      return docSnap.data();
+    }
+  } catch (err) {
+    console.error("Error reading global settings from Firestore:", err);
+  }
+  return {
+    whatsapp_recipient_phone: "+966507668366",
+    whatsapp_phone_number_id: "1148865668308769",
+    whatsapp_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+    whatsapp_cron_time: "12:15",
+    whatsapp_fixed_time: "12:19",
+    contributor_recipient_phone: "+966566889475",
+    contributor_phone_number_id: "1148865668308769",
+    contributor_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+    contributor_cron_time: "12:20",
+    contributor_fixed_time: "12:25"
+  };
+}
+
+async function getSettingFromFirestore(key: string, defaultValue: string): Promise<string> {
+  const settings = await getSettingsFromFirestore();
+  return settings[key] !== undefined ? String(settings[key]) : defaultValue;
+}
+
+async function getLogsFromFirestore(): Promise<any[]> {
+  try {
+    const snapshot = await getDocs(collection(firestoreDb, "whatsapp_logs"));
+    const logs: any[] = [];
+    snapshot.forEach(d => {
+      logs.push({ id: d.id, ...d.data() });
+    });
+    return logs.sort((a,b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()).slice(0, 50);
+  } catch (err) {
+    console.error("Error reading logs from Firestore:", err);
+    return [];
+  }
+}
+
+async function addLogToFirestore(recipient: string, content: string, status: string, isFailure = false, errorMsg?: string): Promise<void> {
+  try {
+    const logId = String(Date.now());
+    await setDoc(doc(firestoreDb, "whatsapp_logs", logId), {
+      recipient_phone: recipient,
+      message_content: content,
+      status,
+      error_message: errorMsg || null,
+      sent_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("Error writing log to Firestore:", err);
+  }
+}
+
+// ---------------------- Working Days Logic ----------------------
+
 function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number {
   try {
     const current = new Date(startDateStr + "T00:00:00");
@@ -195,7 +248,7 @@ function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number
     while (date < target) {
       date.setDate(date.getDate() + 1);
       const day = date.getDay();
-      // 0: Sunday, 1: Monday, 2: Tuesday, 3: Wednesday, 4: Thursday, 5: Friday, 6: Saturday
+      // 5: Friday, 6: Saturday
       if (day !== 5 && day !== 6) {
         workingDays++;
       }
@@ -206,7 +259,6 @@ function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number
   }
 }
 
-// Helper to determine if a letter is escalated by business logic formula
 function isEscalatedByFormula(letter: any, todayStr: string): boolean {
   if (letter.status === "مغلق") return false;
   const elapsed = getWorkingDaysElapsed(letter.letter_date, todayStr);
@@ -218,35 +270,30 @@ function isEscalatedByFormula(letter: any, todayStr: string): boolean {
   return elapsed > limit;
 }
 
-// Global WhatsApp Report Core Functionality
+// ---------------------- Master WhatsApp Dispatcher ----------------------
+
 async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", toPhone?: string) {
-  // 1. Fetch live configurations
-  const getSetting = (key: string, defaultValue: string) => {
-    const res = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as any;
-    return res ? res.value : defaultValue;
-  };
+  const globalConfig = await getSettingsFromFirestore();
 
   let recipientPhone = "";
   let phoneNumberId = "";
   let accessToken = "";
 
   if (role === "manager") {
-    recipientPhone = toPhone || getSetting("whatsapp_recipient_phone", "+966507668366");
-    phoneNumberId = getSetting("whatsapp_phone_number_id", "1148865668308769");
-    accessToken = getSetting("whatsapp_access_token", "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD");
+    recipientPhone = toPhone || globalConfig.whatsapp_recipient_phone || "+966507668366";
+    phoneNumberId = globalConfig.whatsapp_phone_number_id || "1148865668308769";
+    accessToken = globalConfig.whatsapp_access_token || "";
   } else {
-    // Elegant fallback: If contributor fields are blank or not set, inherit from Manager configurations to save user configuration hustle!
-    const managerPhoneId = getSetting("whatsapp_phone_number_id", "1148865668308769");
-    const managerToken = getSetting("whatsapp_access_token", "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD");
+    const managerPhoneId = globalConfig.whatsapp_phone_number_id || "1148865668308769";
+    const managerToken = globalConfig.whatsapp_access_token || "";
 
-    recipientPhone = toPhone || getSetting("contributor_recipient_phone", "+966566889475");
-    phoneNumberId = getSetting("contributor_phone_number_id", "").trim() || managerPhoneId;
-    accessToken = getSetting("contributor_access_token", "").trim() || managerToken;
+    recipientPhone = toPhone || globalConfig.contributor_recipient_phone || "+966566889475";
+    phoneNumberId = (globalConfig.contributor_phone_number_id || "").trim() || managerPhoneId;
+    accessToken = (globalConfig.contributor_access_token || "").trim() || managerToken;
   }
 
-  console.log(`Sending WhatsApp (${role}) Report to: ${recipientPhone} using PhoneId: ${phoneNumberId}`);
+  console.log(`Sending WhatsApp (${role}) Report to: ${recipientPhone} via ID: ${phoneNumberId}`);
 
-  // 2. Query letters
   const now = toZonedTime(new Date(), TIMEZONE);
   const todayStr = format(now, "yyyy-MM-dd");
 
@@ -270,18 +317,15 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
     return `${days} يوم`;
   };
 
+  const allLetters = await getLettersFromFirestore();
   let letters: any[] = [];
   let messageBody = "";
 
   if (role === "manager") {
-    letters = db.prepare(`
-      SELECT * FROM letters 
-      WHERE status != 'مغلق' 
-      AND (due_date < ? OR priority = 'عالية')
-      ORDER BY priority DESC, due_date ASC
-    `).all(todayStr) as any[];
+    letters = allLetters.filter(l => 
+      l.status !== 'مغلق' && (l.due_date < todayStr || l.priority === 'عالية')
+    ).sort((a,b) => b.id - a.id);
 
-    // Fallback to exactly what was requested for verification if empty
     if (letters.length === 0) {
       letters = [
         {
@@ -290,13 +334,6 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
           category: "اعتماد خطة تدعيم شبكة الجهد المتوسط بحي اليرموك",
           responsible_department: "قسم تخطيط الجهد المتوسط",
           letter_date: format(addDays(now, -4), "yyyy-MM-dd")
-        },
-        {
-          entity_source: "هيئة تطوير بوابة الدرعية",
-          letter_number: "100289",
-          category: "طلب موافقة فنية لربط محطة تحويل فرعية تابعة لمشروع تجاري",
-          responsible_department: "إدارة المخططات الفنية",
-          letter_date: format(addDays(now, -3), "yyyy-MM-dd")
         }
       ];
     }
@@ -321,28 +358,16 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
       }
     });
   } else {
-    // For contributor: Non-escalated letters only ("الخطابات الغير مصعده")
-    // Retrieve all active/open letters
-    const allOpenLetters = db.prepare(`
-      SELECT * FROM letters 
-      WHERE status != 'مغلق' 
-      ORDER BY priority DESC, due_date ASC
-    `).all() as any[];
-
-    // Filter in-memory: 
-    // 1. Manual escalation must be empty, null, or 'لا يوجد'
-    // 2. Working days formula escalation must NOT be triggered
-    letters = allOpenLetters.filter((item) => {
+    // Contributor: Non-escalated
+    letters = allLetters.filter(item => {
+      if (item.status === "مغلق") return false;
       const hasManualEscalation = item.escalation && item.escalation !== "لا يوجد" && item.escalation.trim() !== "";
       if (hasManualEscalation) return false;
-
       const hasFormulaEscalation = isEscalatedByFormula(item, todayStr);
       if (hasFormulaEscalation) return false;
-
       return true;
-    });
+    }).sort((a,b) => b.id - a.id);
 
-    // Fallback if empty to look complete and functional
     if (letters.length === 0) {
       letters = [
         {
@@ -350,8 +375,7 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
           letter_number: "100311",
           category: "شكوى من انقطاع الخدمة الكهربائية بإنارة الشوارع بحي القدس",
           responsible_department: "دائرة التشغيل والصيانة – الشرق",
-          letter_date: format(addDays(now, -2), "yyyy-MM-dd"),
-          escalation: "لا يوجد"
+          letter_date: format(addDays(now, -2), "yyyy-MM-dd")
         }
       ];
     }
@@ -381,7 +405,6 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
   messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
   messageBody += `\n\n🤖 _تم إعداد هذا الإشعار آلياً لغرض المتابعة اليومية._`;
 
-  // 4. Fire Request
   let formattedPhone = recipientPhone.trim().replace(/\D/g, "");
   if (formattedPhone.startsWith("00")) {
     formattedPhone = formattedPhone.substring(2);
@@ -404,34 +427,20 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
     }
   };
 
-  const nowIso = new Date().toISOString();
-
   try {
     const metaResponse = await axios.post(metaUrl, payload, { headers });
-    // Write Success Log
-    const insLog = db.prepare(`
-      INSERT INTO whatsapp_logs (recipient_phone, message_content, status, sent_at)
-      VALUES (?, ?, 'نجاح', ?)
-    `);
-    insLog.run(recipientPhone, messageBody, nowIso);
-
+    await addLogToFirestore(recipientPhone, messageBody, "نجاح");
     return { success: true, data: metaResponse.data, message_content: messageBody };
   } catch (err: any) {
     const errorDetails = err.response?.data || err.message;
-    console.error(`Meta WhatsApp (${role}) Cloud API Error Details:`, JSON.stringify(errorDetails));
-
-    // Write Failure Log
-    const insLog = db.prepare(`
-      INSERT INTO whatsapp_logs (recipient_phone, message_content, status, error_message, sent_at)
-      VALUES (?, ?, 'فشل', ?, ?)
-    `);
-    insLog.run(recipientPhone, messageBody, JSON.stringify(errorDetails), nowIso);
-
+    console.error(`WhatsApp dispatch failure details:`, JSON.stringify(errorDetails));
+    await addLogToFirestore(recipientPhone, messageBody, "فشل", true, JSON.stringify(errorDetails));
     return { success: false, error: errorDetails, message_content: messageBody };
   }
 }
 
-// 1. Master Riyadh Time Scheduler Tick Node (100% Reliable, Self-Healing and Real-Time)
+// ---------------------- Master Riyadh Time Scheduler ----------------------
+
 let masterTickTask: any = null;
 
 export async function runSchedulerCheck() {
@@ -440,79 +449,62 @@ export async function runSchedulerCheck() {
     const currentHour = nowRiyadh.getHours();
     const currentMinute = nowRiyadh.getMinutes();
     
-    // Standard robust weekday formatting in Asia/Riyadh using Intl.DateTimeFormat
     const rtfDay = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'long' });
     const weekdayStr = rtfDay.format(new Date());
     const isWorkingDay = weekdayStr !== "Friday" && weekdayStr !== "Saturday";
 
     const currentDateStr = format(nowRiyadh, "yyyy-MM-dd");
     const timeStr = `${String(currentHour).padStart(2, "0")}:${String(currentMinute).padStart(2, "0")}`;
-    const uniqueMinuteKey = `${currentDateStr} ${timeStr}`; // e.g., "2026-06-04 14:52"
+    const uniqueMinuteKey = `${currentDateStr} ${timeStr}`;
 
-    // Helper to fetch keys
-    const getSetting = (key: string, defaultVal: string): string => {
-      try {
-        const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as any;
-        return row ? row.value : defaultVal;
-      } catch (e) {
-        return defaultVal;
-      }
-    };
+    const config = await getSettingsFromFirestore();
 
-    // Helper to safely check if already sent for this specific hour-minute combo today
+    const managerFixedTime = config.whatsapp_fixed_time || "12:19";
+    const managerCronTime = config.whatsapp_cron_time || "12:15";
+    const contributorFixedTime = config.contributor_fixed_time || "12:25";
+    const contributorCronTime = config.contributor_cron_time || "12:20";
+
     const isAlreadySent = (key: string): boolean => {
-      const val = getSetting(key, "");
-      return val === uniqueMinuteKey;
+      return config[key] === uniqueMinuteKey;
     };
 
-    // Helper to mark as sent for this hour-minute combo to prevent duplicate sends during multiple triggers in the same minute
-    const markAsSent = (key: string) => {
+    const markAsSent = async (key: string) => {
       try {
-        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, uniqueMinuteKey);
+        await setDoc(doc(firestoreDb, "settings", "global"), { [key]: uniqueMinuteKey }, { merge: true });
       } catch (e) {
-        console.error(`Failed to mark as sent for ${key}:`, e);
+        console.error(`Failed to mark sent for settings key ${key}:`, e);
       }
     };
 
-    const managerFixedTime = getSetting("whatsapp_fixed_time", "12:19");
-    const managerCronTime = getSetting("whatsapp_cron_time", "12:15");
-    const contributorFixedTime = getSetting("contributor_fixed_time", "12:25");
-    const contributorCronTime = getSetting("contributor_cron_time", "12:20");
+    console.log(`[Scheduler Tick] Riyadh Local: ${timeStr}, Day: ${weekdayStr} (Working: ${isWorkingDay})`);
 
-    console.log(`[Scheduler Tick] Riyadh Time: ${timeStr}, Day: ${weekdayStr} (Working: ${isWorkingDay}) | Targets -> Mgr Fixed: ${managerFixedTime}, Mgr Alert: ${managerCronTime} | Contributor Fixed: ${contributorFixedTime}, Contributor Alert: ${contributorCronTime}`);
-
-    // We only execute on working days (Sunday-Thursday, "من الأحد إلى الخميس")
     if (isWorkingDay) {
-      // 1. Manager Primary Scheduled Daily Report
       if (timeStr === managerFixedTime && !isAlreadySent("last_sent_manager_fixed")) {
-        markAsSent("last_sent_manager_fixed");
-        console.log(`[Scheduler Match] Triggering Manager Fixed Report at ${timeStr}`);
+        await markAsSent("last_sent_manager_fixed");
+        console.log(`[Scheduler] Triggering Manager Fixed Report at ${timeStr}`);
         await sendWhatsAppReport("manager");
       }
       
-      // 2. Manager Dynamic Alert
       if (timeStr === managerCronTime && !isAlreadySent("last_sent_manager_cron")) {
-        markAsSent("last_sent_manager_cron");
-        console.log(`[Scheduler Match] Triggering Manager Dynamic Alert at ${timeStr}`);
+        await markAsSent("last_sent_manager_cron");
+        console.log(`[Scheduler] Triggering Manager Alert at ${timeStr}`);
         await sendWhatsAppReport("manager");
       }
 
-      // 3. Contributor Primary Scheduled Daily Report
       if (timeStr === contributorFixedTime && !isAlreadySent("last_sent_contributor_fixed")) {
-        markAsSent("last_sent_contributor_fixed");
-        console.log(`[Scheduler Match] Triggering Contributor Fixed Report at ${timeStr}`);
+        await markAsSent("last_sent_contributor_fixed");
+        console.log(`[Scheduler] Triggering Contributor Fixed Report at ${timeStr}`);
         await sendWhatsAppReport("contributor");
       }
 
-      // 4. Contributor Dynamic Alert
       if (timeStr === contributorCronTime && !isAlreadySent("last_sent_contributor_cron")) {
-        markAsSent("last_sent_contributor_cron");
-        console.log(`[Scheduler Match] Triggering Contributor Dynamic Alert at ${timeStr}`);
+        await markAsSent("last_sent_contributor_cron");
+        console.log(`[Scheduler] Triggering Contributor Alert at ${timeStr}`);
         await sendWhatsAppReport("contributor");
       }
     }
   } catch (err) {
-    console.error("[Scheduler Error] Exception in master scheduler check block:", err);
+    console.error("[Scheduler Error] Exception in master check:", err);
   }
 }
 
@@ -522,81 +514,72 @@ export function startMasterSchedule() {
     masterTickTask = null;
   }
 
-  console.log("[Master Dispatcher] Starting 1-Minute Master Riyadh WhatsApp Scheduler Tick Node...");
-
+  console.log("[Scheduler] Booting 1-Minute Master Scheduler...");
   masterTickTask = cron.schedule("* * * * *", async () => {
     await runSchedulerCheck();
   });
 }
 
-// Keep helper functions for controller backward compatibility
-export function scheduleFixedWhatsAppJob() {
-  console.log("[Dynamic Scheduler] Re-aligned Manager Fixed schedule. Next tick will evaluate live setting values.");
-}
-export function scheduleWhatsAppJob() {
-  console.log("[Dynamic Scheduler] Re-aligned Manager Dynamic schedule. Next tick will evaluate live setting values.");
-}
-export function scheduleFixedContributorJob() {
-  console.log("[Dynamic Scheduler] Re-aligned Contributor Fixed schedule. Next tick will evaluate live setting values.");
-}
-export function scheduleContributorJob() {
-  console.log("[Dynamic Scheduler] Re-aligned Contributor Dynamic schedule. Next tick will evaluate live setting values.");
-}
+// Auxiliary controller configurations (retained for backward route compatibility)
+export function scheduleFixedWhatsAppJob() {}
+export function scheduleWhatsAppJob() {}
+export function scheduleFixedContributorJob() {}
+export function scheduleContributorJob() {}
 
+// ---------------------- Full-Stack Server Deployment ----------------------
 
 async function startServer() {
+  await ensureSeedAndSetup();
+  startMasterSchedule();
+
   const app = express();
   app.use(express.json());
 
-  // Call both fixed and dynamic schedulers for manager and contributor at startup
-  scheduleFixedWhatsAppJob();
-  scheduleWhatsAppJob();
-  scheduleFixedContributorJob();
-  scheduleContributorJob();
-  startMasterSchedule();
-
-  // API Routes
-  
-  // Auth simulation
-  app.get("/api/auth/me", (req, res) => {
+  // auth hook
+  app.get("/api/auth/me", async (req, res) => {
     const email = req.headers["x-user-email"] || "manager@example.com";
-    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-    res.json(user || { email, role: "staff" });
+    try {
+      const snap = await getDocs(collection(firestoreDb, "users"));
+      let user: any = null;
+      snap.forEach(d => {
+        const u = d.data();
+        if (u.email === email) user = u;
+      });
+      res.json(user || { email, role: "staff" });
+    } catch (e) {
+      res.json({ email, role: "staff" });
+    }
   });
 
-  // Letters CRUD
-  app.get("/api/letters", (req, res) => {
+  // letters cruds
+  app.get("/api/letters", async (req, res) => {
     const { status, priority, department, search, startDate, endDate } = req.query;
-    let query = "SELECT * FROM letters WHERE 1=1";
-    const params: any[] = [];
+    try {
+      let filtered = await getLettersFromFirestore();
+      
+      if (status) filtered = filtered.filter(l => l.status === status);
+      if (priority) filtered = filtered.filter(l => l.priority === priority);
+      if (department) filtered = filtered.filter(l => l.responsible_department === department);
+      if (search) {
+        const q = String(search).toLowerCase();
+        filtered = filtered.filter(l => 
+          l.letter_number.toLowerCase().includes(q) ||
+          l.entity_source.toLowerCase().includes(q) ||
+          (l.category && l.category.toLowerCase().includes(q)) ||
+          (l.responsible_department && l.responsible_department.toLowerCase().includes(q))
+        );
+      }
+      if (startDate && endDate) {
+        filtered = filtered.filter(l => l.letter_date >= startDate && l.letter_date <= endDate);
+      }
 
-    if (status) {
-      query += " AND status = ?";
-      params.push(status);
+      res.json(filtered.sort((a,b) => b.id - a.id));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
-    if (priority) {
-      query += " AND priority = ?";
-      params.push(priority);
-    }
-    if (department) {
-      query += " AND responsible_department = ?";
-      params.push(department);
-    }
-    if (search) {
-      query += " AND (letter_number LIKE ? OR entity_source LIKE ? OR category LIKE ? OR responsible_department LIKE ?)";
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-    }
-    if (startDate && endDate) {
-      query += " AND letter_date BETWEEN ? AND ?";
-      params.push(startDate, endDate);
-    }
-
-    query += " ORDER BY created_at DESC";
-    const letters = db.prepare(query).all(...params);
-    res.json(letters);
   });
 
-  app.post("/api/letters", (req, res) => {
+  app.post("/api/letters", async (req, res) => {
     const {
       entity_source, letter_number, letter_date, category,
       responsible_department, owner, priority, due_date,
@@ -604,149 +587,184 @@ async function startServer() {
     } = req.body;
 
     try {
-      const stmt = db.prepare(`
-        INSERT INTO letters (
-          entity_source, letter_number, letter_date, category,
-          responsible_department, owner, priority, due_date,
-          status, escalation, notes, outgoing_letter_number, outgoing_letter_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const result = stmt.run(
-        entity_source, letter_number, letter_date, category,
-        responsible_department, owner, priority, due_date,
-        status || 'جديد', escalation || 'لا يوجد', notes, outgoing_letter_number || '', outgoing_letter_date || ''
-      );
-      res.status(201).json({ id: result.lastInsertRowid });
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      const letters = await getLettersFromFirestore();
+      const newId = letters.length > 0 ? Math.max(...letters.map(l => l.id)) + 1 : 1;
+
+      const newLetter = {
+        id: newId,
+        entity_source,
+        letter_number,
+        letter_date,
+        category: category || "",
+        responsible_department: responsible_department || "",
+        owner: owner || "",
+        priority: priority || "متوسطة",
+        due_date,
+        status: status || "جديد",
+        escalation: escalation || "لا يوجد",
+        notes: notes || "",
+        outgoing_letter_number: outgoing_letter_number || "",
+        outgoing_letter_date: outgoing_letter_date || "",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      await setDoc(doc(firestoreDb, "letters", String(newId)), newLetter);
+      res.status(201).json({ id: newId });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
   });
 
-  app.put("/api/letters/:id", (req, res) => {
+  app.put("/api/letters/:id", async (req, res) => {
     const { id } = req.params;
-    const {
-      entity_source, letter_number, letter_date, category,
-      responsible_department, owner, priority, due_date,
-      status, escalation, action_taken, close_date, outgoing_letter_number, outgoing_letter_date, notes
-    } = req.body;
+    const body = req.body;
 
     try {
-      const stmt = db.prepare(`
-        UPDATE letters SET
-          entity_source = ?, letter_number = ?, letter_date = ?, category = ?,
-          responsible_department = ?, owner = ?, priority = ?, due_date = ?,
-          status = ?, escalation = ?, action_taken = ?, close_date = ?, outgoing_letter_number = ?, outgoing_letter_date = ?, notes = ?,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `);
-      stmt.run(
-        entity_source, letter_number, letter_date, category,
-        responsible_department, owner, priority, due_date,
-        status, escalation, action_taken, close_date, outgoing_letter_number || '', outgoing_letter_date || '', notes, id
-      );
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      const docRef = doc(firestoreDb, "letters", String(id));
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const updated = {
+          ...docSnap.data(),
+          ...body,
+          updated_at: new Date().toISOString()
+        };
+        await setDoc(docRef, updated);
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: "Letter not found" });
+      }
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
     }
   });
 
-  app.delete("/api/letters/:id", (req, res) => {
+  app.delete("/api/letters/:id", async (req, res) => {
     const { id } = req.params;
-    db.prepare("DELETE FROM letters WHERE id = ?").run(id);
-    res.json({ success: true });
+    try {
+      await deleteDoc(doc(firestoreDb, "letters", String(id)));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   });
 
-  // Dashboard Stats
-  app.get("/api/stats", (req, res) => {
-    const now = toZonedTime(new Date(), TIMEZONE);
-    const todayStr = format(now, "yyyy-MM-dd");
-    const weekStart = format(startOfWeek(now), "yyyy-MM-dd");
-    const weekEnd = format(endOfWeek(now), "yyyy-MM-dd");
+  // dashboard stats
+  app.get("/api/stats", async (req, res) => {
+    try {
+      const letters = await getLettersFromFirestore();
+      const now = toZonedTime(new Date(), TIMEZONE);
+      const todayStr = format(now, "yyyy-MM-dd");
+      const weekStart = format(startOfWeek(now), "yyyy-MM-dd");
+      const weekEnd = format(endOfWeek(now), "yyyy-MM-dd");
 
-    const totalOpen = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status != 'مغلق'").get() as any;
-    const overdue = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status != 'مغلق' AND due_date < ?").get(todayStr) as any;
-    const dueToday = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status != 'مغلق' AND due_date = ?").get(todayStr) as any;
-    const dueThisWeek = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status != 'مغلق' AND due_date BETWEEN ? AND ?").get(weekStart, weekEnd) as any;
+      const openLetters = letters.filter(l => l.status !== "مغلق");
+      const overdueLetters = openLetters.filter(l => l.due_date < todayStr);
+      const dueTodayLetters = openLetters.filter(l => l.due_date === todayStr);
+      
+      const isDueThisWeekHelper = (dStr: string) => {
+        return dStr >= weekStart && dStr <= weekEnd;
+      };
+      
+      const dueThisWeekLetters = openLetters.filter(l => isDueThisWeekHelper(l.due_date));
 
-    const recentLetters = db.prepare("SELECT * FROM letters ORDER BY id DESC LIMIT 5").all() as any[];
-    const openLetters = db.prepare("SELECT * FROM letters WHERE status != 'مغلق' ORDER BY id DESC").all() as any[];
-    const overdueLetters = db.prepare("SELECT * FROM letters WHERE status != 'مغلق' AND due_date < ? ORDER BY id DESC").all(todayStr) as any[];
-    const dueTodayLetters = db.prepare("SELECT * FROM letters WHERE status != 'مغلق' AND due_date = ? ORDER BY id DESC").all(todayStr) as any[];
-    const dueThisWeekLetters = db.prepare("SELECT * FROM letters WHERE status != 'مغلق' AND due_date BETWEEN ? AND ? ORDER BY id DESC").all(weekStart, weekEnd) as any[];
-    
-    const priorityCounts = db.prepare("SELECT priority, COUNT(*) as count FROM letters GROUP BY priority").all() as any[];
+      const priorityMap = openLetters.reduce((acc, curr) => {
+        acc[curr.priority] = (acc[curr.priority] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
 
-    res.json({
-      totalOpen: totalOpen.count,
-      overdue: overdue.count,
-      dueToday: dueToday.count,
-      dueThisWeek: dueThisWeek.count,
-      recentLetters,
-      openLetters,
-      overdueLetters,
-      dueTodayLetters,
-      dueThisWeekLetters,
-      priorityCounts
-    });
+      const priorityCounts = Object.entries(priorityMap).map(([priority, count]) => ({
+        priority,
+        count
+      }));
+
+      res.json({
+        totalOpen: openLetters.length,
+        overdue: overdueLetters.length,
+        dueToday: dueTodayLetters.length,
+        dueThisWeek: dueThisWeekLetters.length,
+        recentLetters: [...letters].sort((a,b) => b.id - a.id).slice(0, 5),
+        openLetters: [...openLetters].sort((a,b) => b.id - a.id),
+        overdueLetters: [...overdueLetters].sort((a,b) => b.id - a.id),
+        dueTodayLetters: [...dueTodayLetters].sort((a,b) => b.id - a.id),
+        dueThisWeekLetters: [...dueThisWeekLetters].sort((a,b) => b.id - a.id),
+        priorityCounts
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // Reports
-  app.get("/api/reports", (req, res) => {
-    const closedLetters = db.prepare("SELECT letter_date, close_date FROM letters WHERE status = 'مغلق' AND close_date IS NOT NULL").all() as any[];
-    
-    let totalResponseTime = 0;
-    closedLetters.forEach(l => {
-      const start = new Date(l.letter_date);
-      const end = new Date(l.close_date);
-      totalResponseTime += (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-    });
+  // reports aggregations
+  app.get("/api/reports", async (req, res) => {
+    try {
+      const letters = await getLettersFromFirestore();
+      const closedLetters = letters.filter(l => l.status === "مغلق" && l.close_date);
 
-    const avgResponseTime = closedLetters.length > 0 ? (totalResponseTime / closedLetters.length).toFixed(1) : 0;
-    
-    const statusCounts = db.prepare("SELECT status, COUNT(*) as count FROM letters GROUP BY status").all() as any[];
-    const total = db.prepare("SELECT COUNT(*) as count FROM letters").get() as any;
-    
-    const now = toZonedTime(new Date(), TIMEZONE);
-    const todayStr = format(now, "yyyy-MM-dd");
-    const overdueCount = db.prepare("SELECT COUNT(*) as count FROM letters WHERE status != 'مغلق' AND due_date < ?").get(todayStr) as any;
+      let totalResponseTime = 0;
+      closedLetters.forEach(l => {
+        const start = new Date(l.letter_date);
+        const end = new Date(l.close_date);
+        totalResponseTime += (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      });
 
-    const departmentStatusCounts = db.prepare(`
-      SELECT 
-        COALESCE(NULLIF(responsible_department, ''), 'غير محدد') as department, 
-        status, 
-        COUNT(*) as count 
-      FROM letters 
-      GROUP BY COALESCE(NULLIF(responsible_department, ''), 'غير محدد'), status
-    `).all() as any[];
+      const avgResponseTime = closedLetters.length > 0 ? (totalResponseTime / closedLetters.length).toFixed(1) : 0;
+      
+      const statusMap = letters.reduce((acc, curr) => {
+        acc[curr.status] = (acc[curr.status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
 
-    res.json({
-      avgResponseTime,
-      statusCounts,
-      total: total.count,
-      overduePercentage: total.count > 0 ? ((overdueCount.count / total.count) * 100).toFixed(1) : 0,
-      departmentStatusCounts
-    });
+      const statusCounts = Object.entries(statusMap).map(([status, count]) => ({ status, count }));
+
+      const now = toZonedTime(new Date(), TIMEZONE);
+      const todayStr = format(now, "yyyy-MM-dd");
+      const overdueCount = letters.filter(l => l.status !== "مغلق" && l.due_date < todayStr).length;
+
+      const deptMap: Record<string, Record<string, number>> = {};
+      letters.forEach(l => {
+        const d = l.responsible_department || "غير محدد";
+        if (!deptMap[d]) deptMap[d] = {};
+        deptMap[d][l.status] = (deptMap[d][l.status] || 0) + 1;
+      });
+
+      const departmentStatusCounts: any[] = [];
+      Object.entries(deptMap).forEach(([department, statuses]) => {
+        Object.entries(statuses).forEach(([status, count]) => {
+          departmentStatusCounts.push({ department, status, count });
+        });
+      });
+
+      res.json({
+        avgResponseTime,
+        statusCounts,
+        total: letters.length,
+        overduePercentage: letters.length > 0 ? ((overdueCount / letters.length) * 100).toFixed(1) : 0,
+        departmentStatusCounts
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // Reminders Cron (Every day at 8 AM)
+  // Reminders Cron alerts (dispatched at 8 AM)
   cron.schedule("0 8 * * *", async () => {
-    console.log("Running reminders check...");
+    console.log("[Scheduler Alert] Triggering daily limits reminders check...");
     const now = toZonedTime(new Date(), TIMEZONE);
     const todayStr = format(now, "yyyy-MM-dd");
     const in1Day = format(addDays(now, 1), "yyyy-MM-dd");
     const in3Days = format(addDays(now, 3), "yyyy-MM-dd");
 
-    const lettersToRemind = db.prepare(`
-      SELECT * FROM letters 
-      WHERE status != 'مغلق' 
-      AND (due_date = ? OR due_date = ? OR due_date = ?)
-    `).all(todayStr, in1Day, in3Days) as any[];
+    const letters = await getLettersFromFirestore();
+    const lettersToRemind = letters.filter(l => 
+      l.status !== 'مغلق' && (l.due_date === todayStr || l.due_date === in1Day || l.due_date === in3Days)
+    );
 
     if (lettersToRemind.length > 0 && resend) {
       for (const letter of lettersToRemind) {
         await resend.emails.send({
           from: 'Letters Tracker <onboarding@resend.dev>',
-          to: 'manager@example.com', // In real app, use letter owner or manager email
+          to: 'manager@example.com',
           subject: `تذكير: خطاب رقم ${letter.letter_number} يستحق الرد قريباً`,
           html: `<div dir="rtl">
             <h2>تذكير بموعد استحقاق خطاب</h2>
@@ -760,16 +778,19 @@ async function startServer() {
     }
   }, { timezone: TIMEZONE });
 
-  // Daily Manager Summary Cron (Every day at 8 PM)
+  // daily manager email summary (dispatched at 8 PM)
   cron.schedule("0 20 * * *", async () => {
-    console.log("Running daily summary...");
+    console.log("[Scheduler Alert] Dispatching daily summary reports...");
     const now = toZonedTime(new Date(), TIMEZONE);
     const tomorrowStr = format(addDays(now, 1), "yyyy-MM-dd");
     const todayStr = format(now, "yyyy-MM-dd");
 
-    const dueTomorrow = db.prepare("SELECT * FROM letters WHERE status != 'مغلق' AND due_date = ?").all(tomorrowStr) as any[];
-    const overdue = db.prepare("SELECT * FROM letters WHERE status != 'مغلق' AND due_date < ?").all(todayStr) as any[];
-    const highPriority = db.prepare("SELECT * FROM letters WHERE status != 'مغلق' AND priority IN ('عالية')").all() as any[];
+    const letters = await getLettersFromFirestore();
+    const openLetters = letters.filter(l => l.status !== 'مغلق');
+
+    const dueTomorrow = openLetters.filter(l => l.due_date === tomorrowStr);
+    const overdue = openLetters.filter(l => l.due_date < todayStr);
+    const highPriority = openLetters.filter(l => l.priority === 'عالية');
 
     if (resend) {
       await resend.emails.send({
@@ -789,69 +810,39 @@ async function startServer() {
     }
   }, { timezone: TIMEZONE });
 
-  // WhatsApp configuration and logs endpoints
-  app.get("/api/whatsapp-config", (req, res) => {
-    const recipientPhone = db.prepare("SELECT value FROM settings WHERE key = 'whatsapp_recipient_phone'").get() as any;
-    const phoneNumberId = db.prepare("SELECT value FROM settings WHERE key = 'whatsapp_phone_number_id'").get() as any;
-    const accessToken = db.prepare("SELECT value FROM settings WHERE key = 'whatsapp_access_token'").get() as any;
-    const cronTime = db.prepare("SELECT value FROM settings WHERE key = 'whatsapp_cron_time'").get() as any;
-    const fixedTime = db.prepare("SELECT value FROM settings WHERE key = 'whatsapp_fixed_time'").get() as any;
+  // WhatsApp configurations fetch
+  app.get("/api/whatsapp-config", async (req, res) => {
+    try {
+      const config = await getSettingsFromFirestore();
+      const logs = await getLogsFromFirestore();
 
-    const contributorRecipientPhone = db.prepare("SELECT value FROM settings WHERE key = 'contributor_recipient_phone'").get() as any;
-    const contributorPhoneNumberId = db.prepare("SELECT value FROM settings WHERE key = 'contributor_phone_number_id'").get() as any;
-    const contributorAccessToken = db.prepare("SELECT value FROM settings WHERE key = 'contributor_access_token'").get() as any;
-    const contributorCronTime = db.prepare("SELECT value FROM settings WHERE key = 'contributor_cron_time'").get() as any;
-    const contributorFixedTime = db.prepare("SELECT value FROM settings WHERE key = 'contributor_fixed_time'").get() as any;
-
-    const logs = db.prepare("SELECT * FROM whatsapp_logs ORDER BY sent_at DESC LIMIT 20").all() as any[];
-
-    res.json({
-      recipient_phone: recipientPhone?.value || "+966507668366",
-      phone_number_id: phoneNumberId?.value || "1148865668308769",
-      access_token: accessToken?.value || "",
-      cron_time: cronTime?.value || "12:15",
-      fixed_time: fixedTime?.value || "12:19",
-      contributor_recipient_phone: contributorRecipientPhone?.value || "+966566889475",
-      contributor_phone_number_id: contributorPhoneNumberId?.value || "1148865668308769",
-      contributor_access_token: contributorAccessToken?.value || "",
-      contributor_cron_time: contributorCronTime?.value || "12:20",
-      contributor_fixed_time: contributorFixedTime?.value || "12:25",
-      logs
-    });
+      res.json({
+        recipient_phone: config.whatsapp_recipient_phone || "+966507668366",
+        phone_number_id: config.whatsapp_phone_number_id || "1148865668308769",
+        access_token: config.whatsapp_access_token || "",
+        cron_time: config.whatsapp_cron_time || "12:15",
+        fixed_time: config.whatsapp_fixed_time || "12:19",
+        contributor_recipient_phone: config.contributor_recipient_phone || "+966566889475",
+        contributor_phone_number_id: config.contributor_phone_number_id || "1148865668308769",
+        contributor_access_token: config.contributor_access_token || "",
+        contributor_cron_time: config.contributor_cron_time || "12:20",
+        contributor_fixed_time: config.contributor_fixed_time || "12:25",
+        logs
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.post("/api/whatsapp-config", async (req, res) => {
-    const {
-      recipient_phone, phone_number_id, access_token, cron_time, fixed_time,
-      contributor_recipient_phone, contributor_phone_number_id, contributor_access_token, contributor_cron_time, contributor_fixed_time
-    } = req.body;
-
     try {
-      const stmt = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
-      if (recipient_phone !== undefined) stmt.run("whatsapp_recipient_phone", recipient_phone);
-      if (phone_number_id !== undefined) stmt.run("whatsapp_phone_number_id", phone_number_id);
-      if (access_token !== undefined) stmt.run("whatsapp_access_token", access_token);
-      if (cron_time !== undefined) {
-        stmt.run("whatsapp_cron_time", cron_time);
-        scheduleWhatsAppJob();
+      const body = req.body;
+      for (const [key, val] of Object.entries(body)) {
+        if (val !== undefined) {
+          await setDoc(doc(firestoreDb, "settings", "global"), { [key]: val }, { merge: true });
+        }
       }
-      if (fixed_time !== undefined) {
-        stmt.run("whatsapp_fixed_time", fixed_time);
-        scheduleFixedWhatsAppJob();
-      }
-
-      if (contributor_recipient_phone !== undefined) stmt.run("contributor_recipient_phone", contributor_recipient_phone);
-      if (contributor_phone_number_id !== undefined) stmt.run("contributor_phone_number_id", contributor_phone_number_id);
-      if (contributor_access_token !== undefined) stmt.run("contributor_access_token", contributor_access_token);
-      if (contributor_cron_time !== undefined) {
-        stmt.run("contributor_cron_time", contributor_cron_time);
-        scheduleContributorJob();
-      }
-      if (contributor_fixed_time !== undefined) {
-        stmt.run("contributor_fixed_time", contributor_fixed_time);
-        scheduleFixedContributorJob();
-      }
-
+      
       await runSchedulerCheck();
       res.json({ success: true });
     } catch (error: any) {
@@ -878,7 +869,7 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
+  // Vite development or production routing
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -894,7 +885,7 @@ async function startServer() {
 
   const PORT = 3000;
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server executing natively on http://0.0.0.0:${PORT}`);
   });
 }
 

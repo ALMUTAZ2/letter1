@@ -1,4 +1,7 @@
 import { Letter, User, DashboardStats, Priority, Status } from "../types";
+import { db } from "./firebase";
+import { collection, doc, getDocs, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import axios from "axios";
 
 // Seed data
 const MOCK_USERS: User[] = [
@@ -90,25 +93,104 @@ const getSeededLetters = (): Letter[] => {
   ];
 };
 
-// Database state managers
-const getLocalLetters = (): Letter[] => {
-  const letters = localStorage.getItem("mock_letters");
-  if (!letters) {
-    const seed = getSeededLetters();
-    localStorage.setItem("mock_letters", JSON.stringify(seed));
-    return seed;
+// Seeder checks for Firestore database
+async function ensureFirestoreSeeded(): Promise<void> {
+  try {
+    const lettersSnap = await getDocs(collection(db, "letters"));
+    if (lettersSnap.empty) {
+      console.log("Seeding Cloud Firestore with default letters...");
+      const seeds = getSeededLetters();
+      for (const letter of seeds) {
+        await setDoc(doc(db, "letters", String(letter.id)), letter);
+      }
+    }
+  } catch (err) {
+    console.warn("Could not seed letters due to rules or connectivity:", err);
   }
-  return JSON.parse(letters);
-};
 
-const setLocalLetters = (letters: Letter[]) => {
-  localStorage.setItem("mock_letters", JSON.stringify(letters));
-};
+  try {
+    const settingsSnap = await getDoc(doc(db, "settings", "global"));
+    if (!settingsSnap.exists()) {
+      console.log("Seeding Cloud Firestore with default settings...");
+      const defaultSettings = {
+        recipient_phone: "+966507668366",
+        phone_number_id: "1148865668308769",
+        access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+        cron_time: "12:15",
+        fixed_time: "12:19",
+        contributor_recipient_phone: "+966566889475",
+        contributor_phone_number_id: "1148865668308769",
+        contributor_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+        contributor_cron_time: "12:20",
+        contributor_fixed_time: "12:25"
+      };
+      await setDoc(doc(db, "settings", "global"), defaultSettings);
+    }
+  } catch (err) {
+    console.warn("Could not seed settings due to rules or connectivity:", err);
+  }
+}
 
-const getLocalConfig = () => {
-  const config = localStorage.getItem("mock_config");
-  if (!config) {
-    const seed = {
+// ---------------------- Firestore Operations ----------------------
+
+async function getFirestoreLetters(): Promise<Letter[]> {
+  await ensureFirestoreSeeded();
+  try {
+    const snapshot = await getDocs(collection(db, "letters"));
+    const letters: Letter[] = [];
+    snapshot.forEach((d) => {
+      letters.push(d.data() as Letter);
+    });
+    return letters.sort((a,b) => b.id - a.id);
+  } catch (err) {
+    console.error("Firestore getFirestoreLetters failed, returning localStorage fallback:", err);
+    // LocalStorage fallback for true robustness
+    const lettersStr = localStorage.getItem("mock_letters");
+    if (!lettersStr) {
+      const seed = getSeededLetters();
+      localStorage.setItem("mock_letters", JSON.stringify(seed));
+      return seed;
+    }
+    return JSON.parse(lettersStr);
+  }
+}
+
+async function saveFirestoreLetter(letter: Letter): Promise<void> {
+  try {
+    await setDoc(doc(db, "letters", String(letter.id)), letter);
+  } catch (err) {
+    console.error("Firestore saveFirestoreLetter failed, using localStorage fallback:", err);
+    const fallbackLetters = localStorage.getItem("mock_letters") ? JSON.parse(localStorage.getItem("mock_letters")!) : getSeededLetters();
+    const filtered = (fallbackLetters as Letter[]).filter(l => l.id !== letter.id);
+    filtered.push(letter);
+    localStorage.setItem("mock_letters", JSON.stringify(filtered));
+  }
+}
+
+async function deleteFirestoreLetter(id: number): Promise<void> {
+  try {
+    await deleteDoc(doc(db, "letters", String(id)));
+  } catch (err) {
+    console.error("Firestore deleteFirestoreLetter failed, using localStorage fallback:", err);
+    const fallbackLetters = localStorage.getItem("mock_letters") ? JSON.parse(localStorage.getItem("mock_letters")!) : getSeededLetters();
+    const filtered = (fallbackLetters as Letter[]).filter(l => l.id !== id);
+    localStorage.setItem("mock_letters", JSON.stringify(filtered));
+  }
+}
+
+async function getFirestoreConfig(): Promise<any> {
+  await ensureFirestoreSeeded();
+  try {
+    const snap = await getDoc(doc(db, "settings", "global"));
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.error("Firestore getFirestoreConfig failed:", err);
+  }
+  const configStr = localStorage.getItem("mock_config");
+  if (!configStr) {
+    const base = {
       recipient_phone: "+966507668366",
       phone_number_id: "1148865668308769",
       access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
@@ -120,37 +202,54 @@ const getLocalConfig = () => {
       contributor_cron_time: "12:20",
       contributor_fixed_time: "12:25"
     };
-    localStorage.setItem("mock_config", JSON.stringify(seed));
-    return seed;
+    localStorage.setItem("mock_config", JSON.stringify(base));
+    return base;
   }
-  return JSON.parse(config);
-};
+  return JSON.parse(configStr);
+}
 
-const setLocalConfig = (config: any) => {
+async function saveFirestoreConfig(config: any): Promise<void> {
+  try {
+    await setDoc(doc(db, "settings", "global"), config, { merge: true });
+  } catch (err) {
+    console.error("Firestore saveFirestoreConfig failed:", err);
+  }
   localStorage.setItem("mock_config", JSON.stringify(config));
-};
+}
 
-const getLocalLogs = () => {
-  const logs = localStorage.getItem("mock_whatsapp_logs");
-  if (!logs) {
-    const seed: any[] = [];
-    localStorage.setItem("mock_whatsapp_logs", JSON.stringify(seed));
-    return seed;
+async function getFirestoreLogs(): Promise<any[]> {
+  try {
+    const snap = await getDocs(collection(db, "whatsapp_logs"));
+    const logs: any[] = [];
+    snap.forEach((d) => {
+      logs.push({ id: d.id, ...d.data() });
+    });
+    return logs.sort((a,b) => new Date(b.sent_at).getTime() - new Date(a.sent_at).getTime()).slice(0, 50);
+  } catch (err) {
+    console.error("Firestore getFirestoreLogs failed:", err);
+    const logsStr = localStorage.getItem("mock_whatsapp_logs") || "[]";
+    return JSON.parse(logsStr);
   }
-  return JSON.parse(logs);
-};
+}
 
-const addLocalLog = (logItem: any) => {
-  const logs = getLocalLogs();
-  logs.unshift({
-    id: Date.now(),
+async function addFirestoreLog(logItem: any): Promise<void> {
+  const logObj = {
     sent_at: new Date().toISOString(),
     ...logItem
-  });
-  localStorage.setItem("mock_whatsapp_logs", JSON.stringify(logs.slice(0, 50)));
-};
+  };
+  try {
+    const logDocId = String(Date.now());
+    await setDoc(doc(db, "whatsapp_logs", logDocId), logObj);
+  } catch (err) {
+    console.error("Firestore addFirestoreLog failed:", err);
+  }
+  const currentLogs = localStorage.getItem("mock_whatsapp_logs") ? JSON.parse(localStorage.getItem("mock_whatsapp_logs")!) : [];
+  currentLogs.unshift(logObj);
+  localStorage.setItem("mock_whatsapp_logs", JSON.stringify(currentLogs.slice(0, 50)));
+}
 
-// Working days logic
+// ---------------------- Working Days / Auxiliary Functions ----------------------
+
 function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number {
   try {
     const current = new Date(startDateStr + "T00:00:00");
@@ -174,7 +273,6 @@ function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number
   }
 }
 
-// Check if letter is due this week
 function isDueThisWeek(dueDateStr: string): boolean {
   try {
     const due = new Date(dueDateStr + "T00:00:00");
@@ -197,13 +295,13 @@ function isDueThisWeek(dueDateStr: string): boolean {
   }
 }
 
-// Handle client-side fetch interception
+// ---------------------- Interceptor Request Handler ----------------------
+
 export async function handleMockRequest(url: string, init?: RequestInit): Promise<Response> {
   const cleanUrl = url.split("?")[0];
   const urlObj = new URL(url, window.location.origin);
   const method = init?.method?.toUpperCase() || "GET";
   
-  // Custom Response Generator
   const jsonResponse = (data: any, status = 200) => {
     return new Response(JSON.stringify(data), {
       status,
@@ -211,22 +309,18 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     });
   };
 
-  // 1. Authentication
+  // 1. Authentication Sim
   if (cleanUrl === "/api/auth/me") {
-    // Check custom role header
     const emailHeader = init?.headers ? (init.headers as Record<string, string>)["x-user-email"] : undefined;
     let selectedEmail = emailHeader || localStorage.getItem("mock_current_email") || "manager@example.com";
-    
-    // Save state
     localStorage.setItem("mock_current_email", selectedEmail);
-    
     const found = MOCK_USERS.find(u => u.email === selectedEmail) || MOCK_USERS[0];
     return jsonResponse(found);
   }
 
-  // 2. Dashboard Statistics
+  // 2. Dashboard Statistics with Cloud Core Data
   if (cleanUrl === "/api/stats") {
-    const letters = getLocalLetters();
+    const letters = await getFirestoreLetters();
     const todayStr = new Date().toISOString().split("T")[0];
     
     const openLetters = letters.filter(l => l.status !== "مغلق");
@@ -235,7 +329,6 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     const dueTodayLetters = openLetters.filter(l => l.due_date === todayStr);
     const dueThisWeekLetters = openLetters.filter(l => isDueThisWeek(l.due_date));
     
-    // Priority counts for open letters
     const priorityCountsMap = openLetters.reduce((acc, current) => {
       acc[current.priority] = (acc[current.priority] || 0) + 1;
       return acc;
@@ -260,9 +353,9 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     });
   }
 
-  // 3. Letters CRUD
+  // 3. Letters REST
   if (cleanUrl === "/api/letters") {
-    const letters = getLocalLetters();
+    const letters = await getFirestoreLetters();
     
     if (method === "GET") {
       const status = urlObj.searchParams.get("status");
@@ -295,7 +388,7 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     
     if (method === "POST" && init?.body) {
       const body = JSON.parse(init.body as string);
-      const letters = getLocalLetters();
+      const letters = await getFirestoreLetters();
       const newId = letters.length > 0 ? Math.max(...letters.map(l => l.id)) + 1 : 1;
       
       const newLetter: Letter = {
@@ -318,8 +411,7 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
         updated_at: new Date().toISOString()
       };
       
-      letters.unshift(newLetter);
-      setLocalLetters(letters);
+      await saveFirestoreLetter(newLetter);
       return jsonResponse({ id: newId }, 201);
     }
   }
@@ -328,34 +420,31 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
   const letterIdMatch = url.match(/\/api\/letters\/(\d+)/);
   if (letterIdMatch) {
     const id = parseInt(letterIdMatch[1]);
-    const letters = getLocalLetters();
+    const letters = await getFirestoreLetters();
     
     if (method === "DELETE") {
-      const remaining = letters.filter(l => l.id !== id);
-      setLocalLetters(remaining);
+      await deleteFirestoreLetter(id);
       return jsonResponse({ success: true });
     }
     
     if (method === "PUT" && init?.body) {
       const body = JSON.parse(init.body as string);
-      const updated = letters.map(l => {
-        if (l.id === id) {
-          return {
-            ...l,
-            ...body,
-            updated_at: new Date().toISOString()
-          };
-        }
-        return l;
-      });
-      setLocalLetters(updated);
+      const existingLetter = letters.find(l => l.id === id);
+      if (existingLetter) {
+        const updated = {
+          ...existingLetter,
+          ...body,
+          updated_at: new Date().toISOString()
+        };
+        await saveFirestoreLetter(updated);
+      }
       return jsonResponse({ success: true });
     }
   }
 
   // 4. Reports API
   if (cleanUrl === "/api/reports") {
-    const letters = getLocalLetters();
+    const letters = await getFirestoreLetters();
     const todayStr = new Date().toISOString().split("T")[0];
     const closedLetters = letters.filter(l => l.status === "مغلق" && l.close_date);
     
@@ -368,7 +457,6 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     
     const avgResponseTime = closedLetters.length > 0 ? (totalResponseTime / closedLetters.length).toFixed(1) : "0.0";
     
-    // Status counts
     const statusCountsMap = letters.reduce((acc, l) => {
       acc[l.status] = (acc[l.status] || 0) + 1;
       return acc;
@@ -383,7 +471,6 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     const total = letters.length;
     const overduePercentage = total > 0 ? ((overdueCount / total) * 100).toFixed(1) : "0";
     
-    // Department status counts
     const deptMap: Record<string, Record<string, number>> = {};
     letters.forEach(l => {
       const dept = l.responsible_department || "غير محدد";
@@ -411,11 +498,11 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     });
   }
 
-  // 5. WhatsApp API settings and configuration
+  // 5. WhatsApp configuration and logs
   if (cleanUrl === "/api/whatsapp-config") {
     if (method === "GET") {
-      const config = getLocalConfig();
-      const logs = getLocalLogs();
+      const config = await getFirestoreConfig();
+      const logs = await getFirestoreLogs();
       return jsonResponse({
         ...config,
         logs
@@ -424,37 +511,68 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     
     if (method === "POST" && init?.body) {
       const body = JSON.parse(init.body as string);
-      const config = getLocalConfig();
+      const config = await getFirestoreConfig();
       const updated = {
         ...config,
         ...body
       };
-      setLocalConfig(updated);
+      await saveFirestoreConfig(updated);
       return jsonResponse({ success: true });
     }
   }
 
-  // 6. Test WhatsApp report sending
+  // 6. WhatsApp Instant Dispatches directly from Client 
   if (cleanUrl === "/api/send-whatsapp-test") {
     if (method === "POST" && init?.body) {
       const body = JSON.parse(init.body as string);
-      const config = getLocalConfig();
+      const config = await getFirestoreConfig();
       const role = body.role || "manager";
       const recipient = body.to_phone || (role === "manager" ? config.recipient_phone : config.contributor_recipient_phone);
       
-      const letters = getLocalLetters();
+      const letters = await getFirestoreLetters();
       const openLetters = letters.filter(l => l.status !== "مغلق");
       
       const content = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود خطابات نشطة تتطلب معالجة فورية.\nإجمالي المفتوحة: ${openLetters.length} خطاباً.`;
       
-      // Simulate WhatsApp response
-      const success = true;
-      const logStatus = "نجاح";
-      
-      addLocalLog({
+      let success = true;
+      let logStatus = "نجاح";
+      let error_message = "";
+
+      if (config.access_token && config.phone_number_id) {
+        try {
+          let formattedPhone = recipient.trim().replace(/\D/g, "");
+          if (formattedPhone.startsWith("00")) {
+            formattedPhone = formattedPhone.substring(2);
+          }
+          const metaUrl = `https://graph.facebook.com/v18.0/${config.phone_number_id}/messages`;
+          const payload = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: formattedPhone,
+            type: "text",
+            text: {
+              preview_url: false,
+              body: `تم الإرسال من منصة تتبع الخطابات (نسخة السحابة):\n\n${content}`
+            }
+          };
+          const headers = {
+            "Authorization": `Bearer ${config.access_token}`,
+            "Content-Type": "application/json"
+          };
+          
+          await axios.post(metaUrl, payload, { headers });
+        } catch (xhrError: any) {
+          success = false;
+          logStatus = "فشل";
+          error_message = xhrError.response?.data ? JSON.stringify(xhrError.response.data) : xhrError.message;
+        }
+      }
+
+      await addFirestoreLog({
         recipient_phone: recipient,
         message_content: content,
-        status: logStatus
+        status: logStatus,
+        error_message: error_message || null
       });
       
       return jsonResponse({
@@ -468,11 +586,10 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
     return jsonResponse({ success: true });
   }
 
-  // Fallback
   return jsonResponse({ error: "Endpoint not found in mock" }, 404);
 }
 
-// Global fetch override setup
+// Global fetch override setup (always route frontend API mock directly to Firestore)
 export function setupFetchInterceptor() {
   const originalFetch = window.fetch || globalThis.fetch;
 
@@ -480,38 +597,16 @@ export function setupFetchInterceptor() {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     
     if (url.startsWith("/api/")) {
-      // Force standalone offline mock directly if enabled in localStorage
-      if (localStorage.getItem("use_offline_mock") === "true") {
-        return handleMockRequest(url, init);
-      }
-      
-      try {
-        const response = await originalFetch(input, init);
-        
-        // Double check if we got a valid JSON api response
-        // Sometimes platforms like Vercel return a status 200/404 html wrapper (SPA index.html rule fallback)
-        const contentType = response.headers.get("content-type") || "";
-        if (response.status === 404 || contentType.includes("text/html")) {
-          throw new Error("HTML markup or 404 received instead of REST API JSON");
-        }
-        
-        return response;
-      } catch (err) {
-        console.warn("Backend server API unreachable. Falling back dynamically to client-side localStorage offline DB!", err);
-        localStorage.setItem("use_offline_mock", "true");
-        return handleMockRequest(url, init);
-      }
+      return handleMockRequest(url, init);
     }
     
     return originalFetch(input, init);
   };
 
   try {
-    // Attempt standard assignment first
     window.fetch = customFetch;
   } catch (e) {
     try {
-      // Attempt using Object.defineProperty on window
       Object.defineProperty(window, "fetch", {
         value: customFetch,
         writable: true,
@@ -519,7 +614,6 @@ export function setupFetchInterceptor() {
       });
     } catch (e2) {
       try {
-        // Fallback to globalThis
         (globalThis as any).fetch = customFetch;
       } catch (e3) {
         console.error("Failed to intercept global fetch properties:", e3);
