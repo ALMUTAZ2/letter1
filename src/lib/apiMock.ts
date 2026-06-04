@@ -200,17 +200,7 @@ async function getFirestoreConfig(): Promise<any> {
   try {
     const snap = await getDoc(doc(db, "settings", "global"));
     if (snap.exists()) {
-      const data = snap.data() || {};
-      const normalized: any = { ...data };
-      const managerKeys = ["recipient_phone", "phone_number_id", "access_token", "cron_time", "fixed_time"];
-      for (const k of managerKeys) {
-        const val = data[k] !== undefined ? data[k] : data[`whatsapp_${k}`];
-        if (val !== undefined) {
-          normalized[k] = val;
-          normalized[`whatsapp_${k}`] = val;
-        }
-      }
-      return normalized;
+      return snap.data();
     }
   } catch (err) {
     console.error("Firestore getFirestoreConfig failed:", err);
