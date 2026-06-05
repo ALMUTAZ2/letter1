@@ -24,8 +24,6 @@ const firebaseConfig = JSON.parse(readFileSync(path.join(process.cwd(), "firebas
 const firebaseApp = initializeApp(firebaseConfig);
 const firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
-const app = express();
-
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const TIMEZONE = "Asia/Riyadh";
 
@@ -189,22 +187,16 @@ async function getSettingsFromFirestore(): Promise<any> {
   try {
     const docSnap = await getDoc(doc(firestoreDb, "settings", "global"));
     if (docSnap.exists()) {
-      const data = docSnap.data();
-      const normalized = { ...data };
+      const data = docSnap.data() || {};
+      const normalized: any = { ...data };
       
-      const mapKeys = [
-        ["recipient_phone", "whatsapp_recipient_phone"],
-        ["phone_number_id", "whatsapp_phone_number_id"],
-        ["access_token", "whatsapp_access_token"],
-        ["cron_time", "whatsapp_cron_time"],
-        ["fixed_time", "whatsapp_fixed_time"],
-      ];
-
-      for (const [unprefixed, prefixed] of mapKeys) {
-        const val = data[unprefixed] !== undefined ? data[unprefixed] : data[prefixed];
+      const managerKeys = ["recipient_phone", "phone_number_id", "access_token", "cron_time", "fixed_time"];
+      for (const k of managerKeys) {
+        // Try to get value using either name (e.g. recipient_phone or whatsapp_recipient_phone)
+        const val = data[k] !== undefined ? data[k] : data[`whatsapp_${k}`];
         if (val !== undefined) {
-          normalized[unprefixed] = val;
-          normalized[prefixed] = val;
+          normalized[k] = val;
+          normalized[`whatsapp_${k}`] = val;
         }
       }
       return normalized;
@@ -558,6 +550,7 @@ async function startServer() {
   await ensureSeedAndSetup();
   startMasterSchedule();
 
+  const app = express();
   app.use(express.json());
 
   // auth hook
@@ -862,30 +855,12 @@ async function startServer() {
   app.post("/api/whatsapp-config", async (req, res) => {
     try {
       const body = req.body;
-      const dataToSave: any = {};
-      
-      const mapKeys = [
-        ["recipient_phone", "whatsapp_recipient_phone"],
-        ["phone_number_id", "whatsapp_phone_number_id"],
-        ["access_token", "whatsapp_access_token"],
-        ["cron_time", "whatsapp_cron_time"],
-        ["fixed_time", "whatsapp_fixed_time"],
-      ];
-
       for (const [key, val] of Object.entries(body)) {
         if (val !== undefined) {
-          dataToSave[key] = val;
-          for (const [unprefixed, prefixed] of mapKeys) {
-            if (key === unprefixed) {
-              dataToSave[prefixed] = val;
-            } else if (key === prefixed) {
-              dataToSave[unprefixed] = val;
-            }
-          }
+          await setDoc(doc(firestoreDb, "settings", "global"), { [key]: val }, { merge: true });
         }
       }
-
-      await setDoc(doc(firestoreDb, "settings", "global"), dataToSave, { merge: true });
+      
       await runSchedulerCheck();
       res.json({ success: true });
     } catch (error: any) {
@@ -927,13 +902,9 @@ async function startServer() {
   }
 
   const PORT = 3000;
-  if (!process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server executing natively on http://0.0.0.0:${PORT}`);
-    });
-  }
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server executing natively on http://0.0.0.0:${PORT}`);
+  });
 }
 
 startServer();
-
-export default app;
