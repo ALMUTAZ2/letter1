@@ -24,6 +24,8 @@ const firebaseConfig = JSON.parse(readFileSync(path.join(process.cwd(), "firebas
 const firebaseApp = initializeApp(firebaseConfig);
 const firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
+const app = express();
+
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const TIMEZONE = "Asia/Riyadh";
 
@@ -556,7 +558,6 @@ async function startServer() {
   await ensureSeedAndSetup();
   startMasterSchedule();
 
-  const app = express();
   app.use(express.json());
 
   // auth hook
@@ -926,9 +927,13 @@ async function startServer() {
   }
 
   const PORT = 3000;
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server executing natively on http://0.0.0.0:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server executing natively on http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
 startServer();
+
+export default app;
