@@ -115,6 +115,8 @@ const getSeededLetters = () => {
 
 async function ensureSeedAndSetup() {
   try {
+    // We do not seed default letters automatically anymore, as we want a clean look displaying only user-entered letters.
+    // We clean up existing default templates from Firestore on startup (IDs 1, 2, 3, 4) to keep the app pristine.
     const seededIds = ["1", "2", "3", "4"];
     for (const id of seededIds) {
       const docRef = doc(firestoreDb, "letters", id);
@@ -270,6 +272,7 @@ function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number
     while (date < target) {
       date.setDate(date.getDate() + 1);
       const day = date.getDay();
+      // 5: Friday, 6: Saturday
       if (day !== 5 && day !== 6) {
         workingDays++;
       }
@@ -379,6 +382,7 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
       }
     });
   } else {
+    // Contributor: Non-escalated
     letters = allLetters.filter(item => {
       if (item.status === "مغلق") return false;
       const hasManualEscalation = item.escalation && item.escalation !== "لا يوجد" && item.escalation.trim() !== "";
@@ -540,6 +544,7 @@ export function startMasterSchedule() {
   });
 }
 
+// Auxiliary controller configurations (retained for backward route compatibility)
 export function scheduleFixedWhatsAppJob() {}
 export function scheduleWhatsAppJob() {}
 export function scheduleFixedContributorJob() {}
@@ -887,26 +892,12 @@ async function startServer() {
     }
   });
 
-  // -------------------------------------------------------------------------
-  // المسار المحدث لاستقبال دقات الساعة التلقائية من Vercel وتأمينها برمجياً
-  // -------------------------------------------------------------------------
   app.all("/api/scheduler-tick", async (req, res) => {
     try {
-      // 1. جدار الحماية البرمجي: التحقق من أن الطلب قادم من كرون Vercel الرسمي فقط
-      const authHeader = req.headers['authorization'];
-      if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        console.warn(`[Security Alert] Unauthorized access attempt to scheduler-tick from IP: ${req.ip}`);
-        return res.status(401).json({ success: false, error: "غير مصرح بالدخول" });
-      }
-
-      // 2. تشغيل الفحص والمطابقة مع التوقيت والمخرجات المسجلة في Firestore
-      console.log(`[Vercel Cron] Server woke up successfully at ${new Date().toISOString()}`);
       await runSchedulerCheck();
-      
-      return res.status(200).json({ success: true, message: "تمت معالجة دقة الساعة وفحص التوقيت بنجاح." });
+      res.json({ success: true });
     } catch (error: any) {
-      console.error("[Scheduler Error] Exception in master check endpoint:", error.message);
-      return res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ error: error.message });
     }
   });
 
