@@ -19,9 +19,6 @@
       "dest": "server.ts"
     },
     {
-      "handle": "filesystem"
-    },
-    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
@@ -29,7 +26,7 @@
   "crons": [
     {
       "path": "/api/scheduler-tick",
-      "schedule": "* * * * *"
+      "schedule": "25 13 * * *"
     }
   ]
 }
