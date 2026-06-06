@@ -557,9 +557,130 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
       const recipient = body.to_phone || (role === "manager" ? config.recipient_phone : config.contributor_recipient_phone);
       
       const letters = await getFirestoreLetters();
-      const openLetters = letters.filter(l => l.status !== "مغلق");
-      
-      const content = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود خطابات نشطة تتطلب معالجة فورية.\nإجمالي المفتوحة: ${openLetters.length} خطاباً.`;
+      const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
+
+      const getDaysDifference = (oldDateStr: string, newDateStr: string): number => {
+        try {
+          const d1 = new Date(oldDateStr + "T00:00:00");
+          const d2 = new Date(newDateStr + "T00:00:00");
+          const diffTime = d2.getTime() - d1.getTime();
+          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+          return diffDays >= 0 ? diffDays : 0;
+        } catch (e) {
+          return 0;
+        }
+      };
+
+      const formatArabicDays = (days: number): string => {
+        if (days === 0) return "أقل من يوم";
+        if (days === 1) return "يوم واحد";
+        if (days === 2) return "يومان";
+        if (days >= 3 && days <= 10) return `${days} أيام`;
+        return `${days} يوم`;
+      };
+
+      const isEscalatedByFormula = (letter: any, todayStr: string): boolean => {
+        if (letter.status === "مغلق") return false;
+        const elapsed = getWorkingDaysElapsed(letter.letter_date, todayStr);
+        let limit = 5;
+        if (letter.priority === "عالية") limit = 1;
+        else if (letter.priority === "متوسطة") limit = 3;
+        else if (letter.priority === "منخفضة") limit = 5;
+        
+        return elapsed > limit;
+      };
+
+      let filteredLetters: any[] = [];
+      let content = "";
+
+      if (role === "manager") {
+        filteredLetters = letters.filter(l => 
+          l.status !== 'مغلق' && (l.due_date < todayStr || l.priority === 'عالية')
+        ).sort((a,b) => b.id - a.id);
+
+        if (filteredLetters.length === 0) {
+          const fourDaysAgo = new Date();
+          fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+          const letterDateStr = fourDaysAgo.toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
+          filteredLetters = [
+            {
+              entity_source: "أمانة منطقة الرياض",
+              letter_number: "100245",
+              category: "اعتماد خطة تدعيم شبكة الجهد المتوسط بحي اليرموك",
+              responsible_department: "قسم تخطيط الجهد المتوسط",
+              letter_date: letterDateStr
+            }
+          ];
+        }
+
+        content = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود خطابات *متأخرة وذات أولوية عالية و مصعدة* ⚠️\nتستلزم المتابعة واتخاذ الإجراء اللازم:\n`;
+
+        filteredLetters.forEach((item, index) => {
+          const topic = item.category || "بلا موضوع";
+          const source = item.entity_source || "غير محدد";
+          const dept = item.responsible_department || "غير محدد";
+          const letterDateStr = item.letter_date || todayStr;
+          const waitingDays = getDaysDifference(letterDateStr, todayStr);
+
+          content += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
+          content += `\n🏢 *الجهة الوارد منها:* ${source}`;
+          content += `\n📝 *الموضوع:* ${topic}`;
+          content += `\n👥 *الجهة المسؤولة:* ${dept}`;
+          content += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
+
+          if (index < filteredLetters.length - 1) {
+            content += `\n\n━━━━━━━━━━━━━━━━━━`;
+          }
+        });
+      } else {
+        filteredLetters = letters.filter(item => {
+          if (item.status === "مغلق") return false;
+          const hasManualEscalation = item.escalation && item.escalation !== "لا يوجد" && item.escalation.trim() !== "";
+          if (hasManualEscalation) return false;
+          const hasFormulaEscalation = isEscalatedByFormula(item, todayStr);
+          if (hasFormulaEscalation) return false;
+          return true;
+        }).sort((a,b) => b.id - a.id);
+
+        if (filteredLetters.length === 0) {
+          const twoDaysAgo = new Date();
+          twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+          const letterDateStr = twoDaysAgo.toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
+          filteredLetters = [
+            {
+              entity_source: "رئاسة بلدية الروضة",
+              letter_number: "100311",
+              category: "شكوى من انقطاع الخدمة الكهربائية بإنارة الشوارع بحي القدس",
+              responsible_department: "دائرة التشغيل والصيانة – الشرق",
+              letter_date: letterDateStr
+            }
+          ];
+        }
+
+        content = `سعادة المساهم\n\nنود إشعاركم بتقرير خطابات المنصة *غير المصعّدة* 📌\nتستلزم المراقبة المستمرة واتخاذ الإجراء اللازم:\n`;
+
+        filteredLetters.forEach((item, index) => {
+          const topic = item.category || "بلا موضوع";
+          const source = item.entity_source || "غير محدد";
+          const dept = item.responsible_department || "غير محدد";
+          const letterDateStr = item.letter_date || todayStr;
+          const waitingDays = getDaysDifference(letterDateStr, todayStr);
+
+          content += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
+          content += `\n🏢 *الجهة الوارد منها:* ${source}`;
+          content += `\n📝 *الموضوع:* ${topic}`;
+          content += `\n👥 *الجهة المسؤولة:* ${dept}`;
+          content += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
+          content += `\n🟢 *حالة التصعيد:* غير مصعد`;
+
+          if (index < filteredLetters.length - 1) {
+            content += `\n\n━━━━━━━━━━━━━━━━━━`;
+          }
+        });
+      }
+
+      content += `\n\n━━━━━━━━━━━━━━━━━━`;
+      content += `\n\n🤖 _تم إعداد هذا الإشعار آلياً لغرض المتابعة اليومية._`;
       
       let success = true;
       let logStatus = "نجاح";
@@ -579,7 +700,7 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
             type: "text",
             text: {
               preview_url: false,
-              body: `تم الإرسال من منصة تتبع الخطابات (نسخة السحابة):\n\n${content}`
+              body: content
             }
           };
           const headers = {

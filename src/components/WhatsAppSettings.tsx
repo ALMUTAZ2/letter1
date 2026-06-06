@@ -38,18 +38,22 @@ export default function WhatsAppSettings() {
     fetch("/api/whatsapp-config")
       .then((res) => res.json())
       .then((data) => {
+        const phoneId = data.phone_number_id || "";
+        const token = data.access_token || "";
+        const cTime = data.cron_time || "12:15";
+        const fTime = data.fixed_time || "12:19";
+
         setRecipientPhone(data.recipient_phone || "");
-        setPhoneNumberId(data.phone_number_id || "");
-        setAccessToken(data.access_token || "");
-        setCronTime(data.cron_time || "12:15");
-        setFixedTime(data.fixed_time || "12:19");
+        setPhoneNumberId(phoneId);
+        setAccessToken(token);
+        setCronTime(cTime);
+        setFixedTime(fTime);
 
         setContributorRecipientPhone(data.contributor_recipient_phone || "");
-        setContributorPhoneNumberId(data.contributor_phone_number_id || "");
-        setContributorAccessToken(data.contributor_access_token || "");
-        // Synchronize automatically with manager's config for unified automated dispatch triggers
-        setContributorCronTime(data.cron_time || "12:15");
-        setContributorFixedTime(data.fixed_time || "12:19");
+        setContributorPhoneNumberId(phoneId); // Force exact sync
+        setContributorAccessToken(token);     // Force exact sync
+        setContributorCronTime(cTime);         // Force exact sync
+        setContributorFixedTime(fTime);       // Force exact sync
 
         setLogs(data.logs || []);
         setLoading(false);
@@ -74,14 +78,14 @@ export default function WhatsAppSettings() {
           cron_time: cronTime,
           fixed_time: fixedTime,
           contributor_recipient_phone: contributorRecipientPhone,
-          contributor_phone_number_id: contributorPhoneNumberId,
-          contributor_access_token: contributorAccessToken,
-          contributor_cron_time: cronTime, // Automatically synchronize with manager's cron time
-          contributor_fixed_time: fixedTime, // Automatically synchronize with manager's fixed time
+          contributor_phone_number_id: phoneNumberId, // Synced
+          contributor_access_token: accessToken,       // Synced
+          contributor_cron_time: cronTime,             // Synced
+          contributor_fixed_time: fixedTime,           // Synced
         }),
       });
       if (res.ok) {
-        alert("تم حفظ الإعدادات بنجاح");
+        alert("تم حفظ الإعدادات بنجاح وثم مزامنة إعدادات المساهم تلقائياً");
         fetchConfig();
       }
     } catch (e) {
@@ -201,7 +205,11 @@ export default function WhatsAppSettings() {
                     <input
                       type="text"
                       value={phoneNumberId}
-                      onChange={(e) => setPhoneNumberId(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPhoneNumberId(val);
+                        setContributorPhoneNumberId(val);
+                      }}
                       placeholder="مثال: 1148865668308769"
                       className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono text-xs"
                     />
@@ -209,7 +217,7 @@ export default function WhatsAppSettings() {
 
                   <div className="space-y-1.5 md:col-span-1">
                     <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
-                      <span>توقيت الإرسال التلقائي الأساسي</span>
+                      <span>توقيت الإساب التلقائي الأساسي</span>
                       <span>📌</span>
                     </label>
                     <div className="flex items-center gap-2 relative">
@@ -217,7 +225,11 @@ export default function WhatsAppSettings() {
                       <input
                         type="time"
                         value={fixedTime}
-                        onChange={(e) => setFixedTime(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setFixedTime(val);
+                          setContributorFixedTime(val);
+                        }}
                         className="w-full pr-11 pl-4 py-3 bg-emerald-50/40 border border-emerald-100/60 rounded-2xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono text-center font-bold text-emerald-950"
                       />
                     </div>
@@ -233,7 +245,11 @@ export default function WhatsAppSettings() {
                       <input
                         type="time"
                         value={cronTime}
-                        onChange={(e) => setCronTime(e.target.value)}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setCronTime(val);
+                          setContributorCronTime(val);
+                        }}
                         className="w-full pr-11 pl-4 py-3 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono text-center font-bold text-slate-800"
                       />
                     </div>
@@ -247,7 +263,11 @@ export default function WhatsAppSettings() {
                     <input
                       type={showToken ? "text" : "password"}
                       value={accessToken}
-                      onChange={(e) => setAccessToken(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAccessToken(val);
+                        setContributorAccessToken(val);
+                      }}
                       placeholder="EAAOZASL5..."
                       className="w-full pr-11 pl-12 py-3 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono text-xs"
                     />
@@ -278,66 +298,78 @@ export default function WhatsAppSettings() {
                   <p className="text-[11px] text-slate-400">الرقم المعتمد للمساهم الذي توصل له إشعارات الخطابات غير المصعدة هو <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-mono text-xs">+966566889475</span></p>
                 </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-1.5 md:col-span-1">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5 md:col-span-1">
+                    <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-slate-500">معرف رقم الهاتف المرسل للمساهم (Phone Number ID)</label>
-                      <input
-                        type="text"
-                        value={contributorPhoneNumberId}
-                        onChange={(e) => setContributorPhoneNumberId(e.target.value)}
-                        placeholder="مثال: 1148865668308769"
-                        className="w-full px-4 py-3 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono text-xs"
-                      />
+                      <span className="text-[10px] bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded font-bold">🔄 متزامن</span>
                     </div>
+                    <input
+                      type="text"
+                      value={contributorPhoneNumberId}
+                      readOnly
+                      placeholder="مثال: 1148865668308769"
+                      className="w-full px-4 py-3 bg-slate-100 border border-transparent rounded-2xl text-slate-500 font-mono text-xs cursor-not-allowed"
+                    />
+                  </div>
 
-                    <div className="space-y-1.5 md:col-span-1 opacity-80">
+                  <div className="space-y-1.5 md:col-span-1">
+                    <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-emerald-800 flex items-center gap-1">
-                        <span>توقيت الإرسال التلقائي الأساسي (يتبع المدير)</span>
-                        <span>⛓️</span>
+                        <span>توقيت الإرسال التلقائي الأساسي</span>
+                        <span>📌</span>
                       </label>
-                      <div className="flex items-center gap-2 relative">
-                        <Clock size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="time"
-                          disabled
-                          value={fixedTime}
-                          className="w-full pr-11 pl-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl font-mono text-center font-bold text-slate-500 cursor-not-allowed"
-                        />
-                      </div>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded font-bold">🔄 متزامن</span>
                     </div>
-
-                    <div className="space-y-1.5 md:col-span-1 opacity-80">
-                      <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
-                        <span>توقيت التنبيه الاختياري الآخر (يتبع المدير)</span>
-                        <span>⛓️</span>
-                      </label>
-                      <div className="flex items-center gap-2 relative">
-                        <Clock size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="time"
-                          disabled
-                          value={cronTime}
-                          className="w-full pr-11 pl-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl font-mono text-center font-bold text-slate-500 cursor-not-allowed"
-                        />
-                      </div>
+                    <div className="flex items-center gap-2 relative">
+                      <Clock size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="time"
+                        value={contributorFixedTime}
+                        readOnly
+                        className="w-full pr-11 pl-4 py-3 bg-slate-100 border border-transparent rounded-2xl text-slate-500 font-mono text-center font-bold cursor-not-allowed"
+                      />
                     </div>
                   </div>
 
+                  <div className="space-y-1.5 md:col-span-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                        <span>توقيت التنبيه الاختياري الآخر</span>
+                        <span>⚙️</span>
+                      </label>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded font-bold">🔄 متزامن</span>
+                    </div>
+                    <div className="flex items-center gap-2 relative">
+                      <Clock size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="time"
+                        value={contributorCronTime}
+                        readOnly
+                        className="w-full pr-11 pl-4 py-3 bg-slate-100 border border-transparent rounded-2xl text-slate-500 font-mono text-center font-bold cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500">الرمز الدائم المعتمد للمساهم (Access Token)</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-500">الرمز الدائم المعتمد للمساهم (Access Token)</label>
+                    <span className="text-[10px] bg-emerald-50 text-emerald-800 px-1 py-0.5 rounded font-bold">🔄 متزامن</span>
+                  </div>
                   <div className="relative">
                     <Key size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type={showContributorToken ? "text" : "password"}
                       value={contributorAccessToken}
-                      onChange={(e) => setContributorAccessToken(e.target.value)}
+                      readOnly
                       placeholder="EAAOZASL5..."
-                      className="w-full pr-11 pl-12 py-3 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-mono text-xs"
+                      className="w-full pr-11 pl-12 py-3 bg-slate-100 border border-transparent rounded-2xl text-slate-500 font-mono text-xs cursor-not-allowed"
                     />
                     <button
                       type="button"
                       onClick={() => setShowContributorToken(!showContributorToken)}
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-450 hover:text-slate-600 transition-colors"
                     >
                       {showContributorToken ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
@@ -430,29 +462,6 @@ export default function WhatsAppSettings() {
                         <p><strong>3.</strong> انزل إلى أسفل الصفحة حتى تجد خطوة رقم 5 أو حقل <strong>To (إلى)</strong> الخاص بالهاتف المستلم.</p>
                         <p><strong>4.</strong> اضغط على قائمة الأرقام المنسدلة واختر <strong>Manage phone number list</strong> ثم أضف رقم الهواتف المعتمد للتجربة: <span className="font-mono bg-amber-100 px-1.5 py-0.5 rounded font-bold text-amber-900">{activeRoleTab === "manager" ? recipientPhone : contributorRecipientPhone}</span>.</p>
                         <p><strong>5.</strong> ستصلك رسالة تحكم برمز التحقق (OTP) على جوالك لتأكيد الملكية. بمجرد تأكيد الرمز، اضغط على زر <strong>"إرسال التقرير فوراً"</strong> مجدداً وستصلك الرسالة المنسقة فوراً وبنجاح تام!</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* دليل حل مشكلة الـ Access Token منتهي الصلاحية رمز 190 */}
-                  {((testLog.error?.error?.code === 190) || JSON.stringify(testLog.error).includes("190") || JSON.stringify(testLog.error).includes("Authentication Error") || JSON.stringify(testLog.error).includes("OAuthException")) && (
-                    <div className="bg-red-50 border border-red-200 p-5 rounded-2xl text-slate-800 space-y-3 font-sans" dir="rtl">
-                      <div className="flex items-center gap-2 text-red-800 font-bold text-sm">
-                        <AlertTriangle size={18} />
-                        <span>🔑 فشل المصادقة (رمز الوصول منتهي أو غير صالح - Error 190):</span>
-                      </div>
-                      <p className="text-xs leading-relaxed text-slate-600">
-                        الـ <strong>Access Token (رمز الوصول)</strong> الذي وضعته في الإعدادات منتهي الصلاحية أو غير صحيح. يحدث هذا غالباً عند استخدام الرمز المؤقت الذي تقدمه Meta للتجربة بموجب 24 ساعة فقط.
-                      </p>
-                      
-                      <div className="text-xs space-y-2 text-slate-700 bg-white/75 p-3.5 rounded-xl border border-red-100 leading-relaxed">
-                        <span className="font-bold text-slate-900 text-[13px] block mb-1">خطوات توليد رمز وصول دائم لا ينتهي أبداً:</span>
-                        <p><strong>1.</strong> اذهب إلى مدير أعمال Meta المتقدم <a href="https://business.facebook.com" target="_blank" rel="noreferrer" className="text-blue-600 font-bold hover:underline">Meta Business Settings</a> مباشرة.</p>
-                        <p><strong>2.</strong> من القائمة الجانبية تحت قسم <strong>المستخدمون (Users)</strong>، اختر <strong>مستخدمو النظام (System Users)</strong>.</p>
-                        <p><strong>3.</strong> اضغط على <strong>إضافة (Add)</strong> لإنشاء مستخدم نظام جديد (بصلاحية Admin).</p>
-                        <p><strong>4.</strong> اضغط على زر <strong>إسناد أصول (Assign Assets)</strong> واختر تطبيق الـ WhatsApp الخاص بك، ومنحه الصلاحية الكاملة لإدارته.</p>
-                        <p><strong>5.</strong> اضغط على زر <strong>إنشاء رمز جديد (Generate New Token)</strong> ثم حدد تطبيقك، وفعّل الصلاحيات التالية: <span className="font-mono bg-emerald-50 text-emerald-800 font-bold px-1 rounded">whatsapp_business_messaging</span> وكذلك <span className="font-mono bg-emerald-50 text-emerald-800 font-bold px-1 rounded">whatsapp_business_management</span>.</p>
-                        <p><strong>6.</strong> انسخ الرمز المولد وضعه في حقل الـ Access Token بالأعلى واضغط على حفظ الإعدادات لضمان استقرار الإرسال التلقائي دون انقطاع!</p>
                       </div>
                     </div>
                   )}

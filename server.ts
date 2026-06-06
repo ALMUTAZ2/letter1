@@ -297,28 +297,17 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
   let phoneNumberId = "";
   let accessToken = "";
 
-  const PERMANENT_TOKEN = "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD";
-
   if (role === "manager") {
-    recipientPhone = (toPhone || globalConfig.whatsapp_recipient_phone || "+966507668366").trim();
-    phoneNumberId = (globalConfig.whatsapp_phone_number_id || "1148865668308769").trim();
-    accessToken = (globalConfig.whatsapp_access_token || PERMANENT_TOKEN).trim();
+    recipientPhone = toPhone || globalConfig.whatsapp_recipient_phone || "+966507668366";
+    phoneNumberId = globalConfig.whatsapp_phone_number_id || "1148865668308769";
+    accessToken = globalConfig.whatsapp_access_token || "";
   } else {
-    const managerPhoneId = (globalConfig.whatsapp_phone_number_id || "1148865668308769").trim();
-    const managerToken = (globalConfig.whatsapp_access_token || PERMANENT_TOKEN).trim();
+    const managerPhoneId = globalConfig.whatsapp_phone_number_id || "1148865668308769";
+    const managerToken = globalConfig.whatsapp_access_token || "";
 
-    recipientPhone = (toPhone || globalConfig.contributor_recipient_phone || "+966566889475").trim();
-    phoneNumberId = ((globalConfig.contributor_phone_number_id || "").trim() || managerPhoneId).trim();
-    accessToken = ((globalConfig.contributor_access_token || "").trim() || managerToken).trim();
-  }
-
-  // Clean any surrounding quotes or spacing issues from credentials
-  recipientPhone = recipientPhone.replace(/^["']|["']$/g, "").trim();
-  phoneNumberId = phoneNumberId.replace(/^["']|["']$/g, "").trim();
-  accessToken = accessToken.replace(/^["']|["']$/g, "").trim();
-
-  if (!accessToken) {
-    accessToken = PERMANENT_TOKEN;
+    recipientPhone = toPhone || globalConfig.contributor_recipient_phone || "+966566889475";
+    phoneNumberId = (globalConfig.contributor_phone_number_id || "").trim() || managerPhoneId;
+    accessToken = (globalConfig.contributor_access_token || "").trim() || managerToken;
   }
 
   console.log(`Sending WhatsApp (${role}) Report to: ${recipientPhone} via ID: ${phoneNumberId}`);
@@ -479,7 +468,7 @@ export async function runSchedulerCheck() {
     const currentMinute = nowRiyadh.getMinutes();
     
     const rtfDay = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, weekday: 'long' });
-    const weekdayStr = rtfDay.format(new Date());
+    const weekdayStr = rtfDay.format(nowRiyadh);
     const isWorkingDay = weekdayStr !== "Friday" && weekdayStr !== "Saturday";
 
     const currentDateStr = format(nowRiyadh, "yyyy-MM-dd");
@@ -507,9 +496,8 @@ export async function runSchedulerCheck() {
 
     console.log(`[Scheduler Tick] Riyadh Local: ${timeStr}, Day: ${weekdayStr} (Working: ${isWorkingDay})`);
 
-    // Temporary bypass weekend check for testing (allow Friday and Saturday)
-    const bypassWorkingDayCheck = true;
-    if (isWorkingDay || bypassWorkingDayCheck) {
+    // Bypassed weekend skip logic for active testing; dispatches run on all days.
+    if (true) {
       if (timeStr === managerFixedTime && !isAlreadySent("last_sent_manager_fixed")) {
         await markAsSent("last_sent_manager_fixed");
         console.log(`[Scheduler] Triggering Manager Fixed Report at ${timeStr}`);
@@ -561,6 +549,9 @@ export function scheduleContributorJob() {}
 
 async function startServer() {
   await ensureSeedAndSetup();
+  
+  // Vercel acts as stateless, but on full container/sandbox hosting we align both the local Node engine and Firebase Functions safely.
+  // Both setups are coordinated through Firebase Firestore settings to avoid overlaps (using the unique minute-key sent lock).
   startMasterSchedule();
 
   const app = express();
@@ -846,19 +837,18 @@ async function startServer() {
     try {
       const config = await getSettingsFromFirestore();
       const logs = await getLogsFromFirestore();
-      const PERMANENT_TOKEN = "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD";
 
       res.json({
         recipient_phone: config.whatsapp_recipient_phone || "+966507668366",
         phone_number_id: config.whatsapp_phone_number_id || "1148865668308769",
-        access_token: config.whatsapp_access_token || PERMANENT_TOKEN,
+        access_token: config.whatsapp_access_token || "",
         cron_time: config.whatsapp_cron_time || "12:15",
         fixed_time: config.whatsapp_fixed_time || "12:19",
         contributor_recipient_phone: config.contributor_recipient_phone || "+966566889475",
         contributor_phone_number_id: config.contributor_phone_number_id || "1148865668308769",
-        contributor_access_token: config.contributor_access_token || PERMANENT_TOKEN,
-        contributor_cron_time: config.contributor_cron_time || "12:15", // Sync to Manager cron_time by default
-        contributor_fixed_time: config.contributor_fixed_time || "12:19", // Sync to Manager fixed_time by default
+        contributor_access_token: config.contributor_access_token || "",
+        contributor_cron_time: config.contributor_cron_time || "12:20",
+        contributor_fixed_time: config.contributor_fixed_time || "12:25",
         logs
       });
     } catch (e: any) {
@@ -869,32 +859,10 @@ async function startServer() {
   app.post("/api/whatsapp-config", async (req, res) => {
     try {
       const body = req.body;
-      const cleanedData: any = {};
-
-      const managerKeys = ["recipient_phone", "phone_number_id", "access_token", "cron_time", "fixed_time"];
-
       for (const [key, val] of Object.entries(body)) {
-        if (val !== undefined && val !== null) {
-          let cleanedVal = val;
-          if (typeof val === "string") {
-            cleanedVal = val.trim().replace(/^["']|["']$/g, "").trim();
-          }
-          cleanedData[key] = cleanedVal;
-
-          // Sync keys to prevent inconsistencies between prefixed and non-prefixed fields
-          for (const mk of managerKeys) {
-            if (key === mk) {
-              cleanedData[`whatsapp_${mk}`] = cleanedVal;
-            } else if (key === `whatsapp_${mk}`) {
-              cleanedData[mk] = cleanedVal;
-            }
-          }
+        if (val !== undefined) {
+          await setDoc(doc(firestoreDb, "settings", "global"), { [key]: val }, { merge: true });
         }
-      }
-
-      // Save sanitized options
-      if (Object.keys(cleanedData).length > 0) {
-        await setDoc(doc(firestoreDb, "settings", "global"), cleanedData, { merge: true });
       }
       
       await runSchedulerCheck();
