@@ -119,17 +119,28 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
   let phoneNumberId = "";
   let accessToken = "";
 
-  if (role === "manager") {
-    recipientPhone = globalConfig.recipient_phone || globalConfig.whatsapp_recipient_phone || "+966507668366";
-    phoneNumberId = globalConfig.phone_number_id || globalConfig.whatsapp_phone_number_id || "1148865668308769";
-    accessToken = globalConfig.access_token || globalConfig.whatsapp_access_token || "";
-  } else {
-    const managerPhoneId = globalConfig.phone_number_id || globalConfig.whatsapp_phone_number_id || "1148865668308769";
-    const managerToken = globalConfig.access_token || globalConfig.whatsapp_access_token || "";
+  const PERMANENT_TOKEN = "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD";
 
-    recipientPhone = globalConfig.contributor_recipient_phone || "+966566889475";
-    phoneNumberId = (globalConfig.contributor_phone_number_id || "").trim() || managerPhoneId;
-    accessToken = (globalConfig.contributor_access_token || "").trim() || managerToken;
+  if (role === "manager") {
+    recipientPhone = (globalConfig.recipient_phone || globalConfig.whatsapp_recipient_phone || "+966507668366").trim();
+    phoneNumberId = (globalConfig.phone_number_id || globalConfig.whatsapp_phone_number_id || "1148865668308769").trim();
+    accessToken = (globalConfig.access_token || globalConfig.whatsapp_access_token || PERMANENT_TOKEN).trim();
+  } else {
+    const managerPhoneId = (globalConfig.phone_number_id || globalConfig.whatsapp_phone_number_id || "1148865668308769").trim();
+    const managerToken = (globalConfig.access_token || globalConfig.whatsapp_access_token || PERMANENT_TOKEN).trim();
+
+    recipientPhone = (globalConfig.contributor_recipient_phone || "+966566889475").trim();
+    phoneNumberId = ((globalConfig.contributor_phone_number_id || "").trim() || managerPhoneId).trim();
+    accessToken = ((globalConfig.contributor_access_token || "").trim() || managerToken).trim();
+  }
+
+  // Clean any surrounding quotes or spacing issues from credentials
+  recipientPhone = recipientPhone.replace(/^["']|["']$/g, "").trim();
+  phoneNumberId = phoneNumberId.replace(/^["']|["']$/g, "").trim();
+  accessToken = accessToken.replace(/^["']|["']$/g, "").trim();
+
+  if (!accessToken) {
+    accessToken = PERMANENT_TOKEN;
   }
 
   if (!accessToken) {
