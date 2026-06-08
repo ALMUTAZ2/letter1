@@ -257,10 +257,23 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: formattedPhone,
-    type: "text",
-    text: {
-      preview_url: false,
-      body: messageBody
+    type: "template",
+    template: {
+      name: "daily_letters_report",
+      language: {
+        code: "ar"
+      },
+      components: [
+        {
+          type: "body",
+          parameters: [
+            {
+              type: "text",
+              text: messageBody.replace(/[\n\t]+/g, " - ").replace(/\s{5,}/g, "    ")
+            }
+          ]
+        }
+      ]
     }
   };
 
