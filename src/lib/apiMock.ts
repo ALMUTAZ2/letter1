@@ -107,7 +107,6 @@ console.log("Deleted default template letter matching ID: " + id);
 }
 }
 
-```
 const localS = localStorage.getItem("mock_letters");
 if (localS) {
   const parsedS = JSON.parse(localS) as any[];
@@ -118,9 +117,6 @@ if (localS) {
     localStorage.setItem("mock_letters", JSON.stringify(filteredS));
   }
 }
-
-```
-
 } catch (err) {
 console.warn("Could not clean up template letters:", err);
 }
@@ -278,7 +274,6 @@ const target = new Date(endDateStr + "T00:00:00");
 if (isNaN(current.getTime()) || isNaN(target.getTime())) return 0;
 if (current >= target) return 0;
 
-```
 let workingDays = 0;
 const date = new Date(current);
 while (date < target) {
@@ -289,9 +284,6 @@ while (date < target) {
   }
 }
 return workingDays;
-
-```
-
 } catch (e) {
 return 0;
 }
@@ -302,7 +294,6 @@ try {
 const due = new Date(dueDateStr + "T00:00:00");
 if (isNaN(due.getTime())) return false;
 
-```
 const now = new Date();
 const start = new Date(now);
 start.setDate(now.getDate() - now.getDay());
@@ -313,9 +304,6 @@ end.setDate(start.getDate() + 6);
 end.setHours(23,59,59,999);
 
 return due >= start && due <= end;
-
-```
-
 } catch (e) {
 return false;
 }
@@ -345,7 +333,6 @@ if (cleanUrl === "/api/stats") {
 const letters = await getFirestoreLetters();
 const todayStr = new Date().toISOString().split("T")[0];
 
-```
 const openLetters = letters.filter(l => l.status !== "مغلق");
 const totalOpen = openLetters.length;
 const overdueLetters = openLetters.filter(l => l.due_date < todayStr);
@@ -374,15 +361,11 @@ return jsonResponse({
   dueThisWeekLetters: [...dueThisWeekLetters].sort((a,b) => b.id - a.id),
   priorityCounts
 });
-
-```
-
 }
 
 if (cleanUrl === "/api/letters") {
 const letters = await getFirestoreLetters();
 
-```
 if (method === "GET") {
   const status = urlObj.searchParams.get("status");
   const priority = urlObj.searchParams.get("priority");
@@ -440,9 +423,6 @@ if (method === "POST" && init?.body) {
   await saveFirestoreLetter(newLetter);
   return jsonResponse({ id: newId }, 201);
 }
-
-```
-
 }
 
 const letterIdMatch = url.match(//api/letters/(\d+)/);
@@ -450,7 +430,6 @@ if (letterIdMatch) {
 const id = parseInt(letterIdMatch[1]);
 const letters = await getFirestoreLetters();
 
-```
 if (method === "DELETE") {
   await deleteFirestoreLetter(id);
   return jsonResponse({ success: true });
@@ -469,9 +448,6 @@ if (method === "PUT" && init?.body) {
   }
   return jsonResponse({ success: true });
 }
-
-```
-
 }
 
 if (cleanUrl === "/api/reports") {
@@ -479,7 +455,6 @@ const letters = await getFirestoreLetters();
 const todayStr = new Date().toISOString().split("T")[0];
 const closedLetters = letters.filter(l => l.status === "مغلق" && l.close_date);
 
-```
 let totalResponseTime = 0;
 closedLetters.forEach(l => {
   const start = new Date(l.letter_date);
@@ -528,9 +503,6 @@ return jsonResponse({
   overduePercentage,
   departmentStatusCounts
 });
-
-```
-
 }
 
 if (cleanUrl === "/api/whatsapp-config") {
@@ -543,7 +515,6 @@ logs
 });
 }
 
-```
 if (method === "POST" && init?.body) {
   const body = JSON.parse(init.body as string);
   const config = await getFirestoreConfig();
@@ -554,9 +525,6 @@ if (method === "POST" && init?.body) {
   await saveFirestoreConfig(updated);
   return jsonResponse({ success: true });
 }
-
-```
-
 }
 
 if (cleanUrl === "/api/send-whatsapp-test") {
@@ -566,7 +534,6 @@ const config = await getFirestoreConfig();
 const role = body.role || "manager";
 const recipient = body.to_phone || (role === "manager" ? config.recipient_phone : config.contributor_recipient_phone);
 
-```
   const letters = await getFirestoreLetters();
   const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
 
@@ -751,9 +718,6 @@ const recipient = body.to_phone || (role === "manager" ? config.recipient_phone 
     message_content: content
   });
 }
-
-```
-
 }
 
 if (cleanUrl === "/api/scheduler-tick") {
@@ -769,15 +733,11 @@ const originalFetch = window.fetch || globalThis.fetch;
 const customFetch = async function (input: RequestInfo | URL, init?: RequestInit): Promise {
 const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 
-```
 if (url.startsWith("/api/")) {
   return handleMockRequest(url, init);
 }
 
 return originalFetch(input, init);
-
-```
-
 };
 
 try {
