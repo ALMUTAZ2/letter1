@@ -1,14 +1,14 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import { fileURLToPath } from "url";
 import cron from "node-cron";
 import { format, addDays, startOfWeek, endOfWeek } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
 import { Resend } from "resend";
 import dotenv from "dotenv";
 import axios from "axios";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
+import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
 
 // Firebase Server sdk setup
 import { initializeApp } from "firebase/app";
@@ -16,13 +16,10 @@ import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc } fro
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // Read Firebase config from file safely
-const firebaseConfig = JSON.parse(readFileSync(path.join(process.cwd(), "firebase-applet-config.json"), "utf-8"));
 const firebaseApp = initializeApp(firebaseConfig);
 const firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+console.log("[Server] Firebase configuration loaded statically.");
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const TIMEZONE = "Asia/Riyadh";
@@ -438,10 +435,23 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: formattedPhone,
-    type: "text",
-    text: {
-      preview_url: false,
-      body: messageBody
+    type: "template",
+    template: {
+      name: "daily_letters_report",
+      language: {
+        code: "ar"
+      },
+      components: [
+        {
+          type: "body",
+          parameters: [
+            {
+              type: "text",
+              text: messageBody.replace(/[\n\t]+/g, " - ").replace(/\s{5,}/g, "    ")
+            }
+          ]
+        }
+      ]
     }
   };
 
@@ -899,9 +909,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, "dist")));
+    app.use(express.static(path.join(process.cwd(), "dist")));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      res.sendFile(path.join(process.cwd(), "dist", "index.html"));
     });
   }
 
