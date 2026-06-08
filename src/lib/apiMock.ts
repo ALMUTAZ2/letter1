@@ -95,6 +95,8 @@ const getSeededLetters = (): Letter[] => {
 
 // Seeder checks for Firestore database
 async function ensureFirestoreSeeded(): Promise<void> {
+  // We do not seed default letters automatically anymore, as we want a clean look displaying only user-entered letters.
+  // We clean up existing default templates from Firestore and localStorage (IDs 1, 2, 3, 4) to ensure the system is completely clean.
   try {
     const seededIds = ["1", "2", "3", "4"];
     for (const id of seededIds) {
@@ -109,6 +111,7 @@ async function ensureFirestoreSeeded(): Promise<void> {
       }
     }
     
+    // Cleanup localStorage copy if it contains templates
     const localS = localStorage.getItem("mock_letters");
     if (localS) {
       const parsedS = JSON.parse(localS) as any[];
@@ -148,7 +151,7 @@ async function ensureFirestoreSeeded(): Promise<void> {
 
 // ---------------------- Firestore Operations ----------------------
 
-export async function getFirestoreLetters(): Promise<Letter[]> {
+async function getFirestoreLetters(): Promise<Letter[]> {
   await ensureFirestoreSeeded();
   try {
     const snapshot = await getDocs(collection(db, "letters"));
@@ -159,6 +162,7 @@ export async function getFirestoreLetters(): Promise<Letter[]> {
     return letters.sort((a,b) => b.id - a.id);
   } catch (err) {
     console.error("Firestore getFirestoreLetters failed, returning localStorage fallback:", err);
+    // LocalStorage fallback for true robustness
     const lettersStr = localStorage.getItem("mock_letters");
     if (!lettersStr) {
       localStorage.setItem("mock_letters", JSON.stringify([]));
@@ -168,7 +172,7 @@ export async function getFirestoreLetters(): Promise<Letter[]> {
   }
 }
 
-export async function saveFirestoreLetter(letter: Letter): Promise<void> {
+async function saveFirestoreLetter(letter: Letter): Promise<void> {
   try {
     await setDoc(doc(db, "letters", String(letter.id)), letter);
   } catch (err) {
@@ -180,7 +184,7 @@ export async function saveFirestoreLetter(letter: Letter): Promise<void> {
   }
 }
 
-export async function deleteFirestoreLetter(id: number): Promise<void> {
+async function deleteFirestoreLetter(id: number): Promise<void> {
   try {
     await deleteDoc(doc(db, "letters", String(id)));
   } catch (err) {
@@ -191,7 +195,7 @@ export async function deleteFirestoreLetter(id: number): Promise<void> {
   }
 }
 
-export async function getFirestoreConfig(): Promise<any> {
+async function getFirestoreConfig(): Promise<any> {
   await ensureFirestoreSeeded();
   try {
     const snap = await getDoc(doc(db, "settings", "global"));
@@ -231,7 +235,7 @@ export async function getFirestoreConfig(): Promise<any> {
   return JSON.parse(configStr);
 }
 
-export async function saveFirestoreConfig(config: any): Promise<void> {
+async function saveFirestoreConfig(config: any): Promise<void> {
   try {
     await setDoc(doc(db, "settings", "global"), config, { merge: true });
   } catch (err) {
@@ -240,7 +244,7 @@ export async function saveFirestoreConfig(config: any): Promise<void> {
   localStorage.setItem("mock_config", JSON.stringify(config));
 }
 
-export async function getFirestoreLogs(): Promise<any[]> {
+async function getFirestoreLogs(): Promise<any[]> {
   try {
     const snap = await getDocs(collection(db, "whatsapp_logs"));
     const logs: any[] = [];
@@ -255,7 +259,7 @@ export async function getFirestoreLogs(): Promise<any[]> {
   }
 }
 
-export async function addFirestoreLog(logItem: any): Promise<void> {
+async function addFirestoreLog(logItem: any): Promise<void> {
   const logObj = {
     sent_at: new Date().toISOString(),
     ...logItem
@@ -285,6 +289,7 @@ function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number
     while (date < target) {
       date.setDate(date.getDate() + 1);
       const day = date.getDay();
+      // 5: Friday, 6: Saturday
       if (day !== 5 && day !== 6) {
         workingDays++;
       }
@@ -301,10 +306,12 @@ function isDueThisWeek(dueDateStr: string): boolean {
     if (isNaN(due.getTime())) return false;
     
     const now = new Date();
+    // Start of current week (Sunday)
     const start = new Date(now);
     start.setDate(now.getDate() - now.getDay());
     start.setHours(0,0,0,0);
     
+    // End of current week (Saturday)
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
     end.setHours(23,59,59,999);
@@ -314,6 +321,7 @@ function isDueThisWeek(dueDateStr: string): boolean {
     return false;
   }
 }
+
 // ---------------------- Interceptor Request Handler ----------------------
 
 export async function handleMockRequest(url: string, init?: RequestInit): Promise<Response> {
@@ -685,32 +693,29 @@ export async function handleMockRequest(url: string, init?: RequestInit): Promis
             formattedPhone = formattedPhone.substring(2);
           }
           const metaUrl = `https://graph.facebook.com/v18.0/${config.phone_number_id}/messages`;
-          
-          // 🚀 السحر يبدأ هنا: بناء الحمولة البرمجية بنظام القوالب الرسمي
           const payload = {
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to: formattedPhone,
-            type: "template", // تغيير النوع رسمياً إلى template
-            template: {
-              name: "daily_letters_report", // الاسم المطابق تماماً في حساب المطورين بميتا
-              language: {
-                code: "ar"
-              },
-              components: [
-                {
-                  type: "body",
-                  parameters: [
-                    {
-                      type: "text",
-                      text: content // تمرير نص التقرير الذي يجمعه الـ forEach بالكامل داخل متغيرنا {{1}}
-                    }
-                  ]
-                }
-              ]
-            }
-          };
-
+  messaging_product: "whatsapp",
+  recipient_type: "individual",
+  to: formattedPhone,
+  type: "template", //  التحويل إلى نظام القوالب الرسمي
+  template: {
+    name: "daily_letters_report", //  اسم قالبك المعتمد في Meta
+    language: {
+      code: "ar"
+    },
+    components: [
+      {
+        type: "body",
+        parameters: [
+          {
+            type: "text",
+            text: content //  تمرير تقريرك الذكي بالكامل مكان {{1}}
+          }
+        ]
+      }
+    ]
+  }
+};
           const headers = {
             "Authorization": `Bearer ${config.access_token}`,
             "Content-Type": "application/json"
