@@ -167,7 +167,7 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       ];
     }
 
-    messageBody = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود خطابات *متأخرة وذات أولوية عالية و مصعدة* ⚠️\nتستلزم المتابعة واتخاذ الإجراء اللازم:\n`;
+    messageBody = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود خطابات متأخرة وذات أولوية عالية و مصعدة ⚠️\nتستلزم المتابعة واتخاذ الإجراء اللازم:\n`;
 
     letters.forEach((item, index) => {
       const topic = item.category || "بلا موضوع";
@@ -176,11 +176,11 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       const letterDateStr = item.letter_date || todayStr;
       const waitingDays = getDaysDifference(letterDateStr, todayStr);
 
-      messageBody += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
-      messageBody += `\n🏢 *الجهة الوارد منها:* ${source}`;
-      messageBody += `\n📝 *الموضوع:* ${topic}`;
-      messageBody += `\n👥 *الجهة المسؤولة:* ${dept}`;
-      messageBody += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
+      messageBody += `\n📌 رقم الخطاب: ${item.letter_number}`;
+      messageBody += `\n🏢 الجهة الوارد منها: ${source}`;
+      messageBody += `\n📝 الموضوع: ${topic}`;
+      messageBody += `\n👥 الجهة المسؤولة: ${dept}`;
+      messageBody += `\n⏳ مدة الانتظار: ${formatArabicDays(waitingDays)}`;
 
       if (index < letters.length - 1) {
         messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
@@ -217,7 +217,7 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       ];
     }
 
-    messageBody = `سعادة المساهم\n\nنود إشعاركم بتقرير خطابات المنصة *غير المصعّدة* 📌\nتستلزم المراقبة المستمرة واتخاذ الإجراء اللازم:\n`;
+    messageBody = `سعادة المساهم\n\nنود إشعاركم بتقرير خطابات المنصة غير المصعّدة 📌\nتستلزم المراقبة المستمرة واتخاذ الإجراء اللازم:\n`;
 
     letters.forEach((item, index) => {
       const topic = item.category || "بلا موضوع";
@@ -226,12 +226,12 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       const letterDateStr = item.letter_date || todayStr;
       const waitingDays = getDaysDifference(letterDateStr, todayStr);
 
-      messageBody += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
-      messageBody += `\n🏢 *الجهة الوارد منها:* ${source}`;
-      messageBody += `\n📝 *الموضوع:* ${topic}`;
-      messageBody += `\n👥 *الجهة المسؤولة:* ${dept}`;
-      messageBody += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
-      messageBody += `\n🟢 *حالة التصعيد:* غير مصعد`;
+      messageBody += `\n📌 رقم الخطاب: ${item.letter_number}`;
+      messageBody += `\n🏢 الجهة الوارد منها: ${source}`;
+      messageBody += `\n📝 الموضوع: ${topic}`;
+      messageBody += `\n👥 الجهة المسؤولة: ${dept}`;
+      messageBody += `\n⏳ مدة الانتظار: ${formatArabicDays(waitingDays)}`;
+      messageBody += `\n🟢 حالة التصعيد: غير مصعد`;
 
       if (index < letters.length - 1) {
         messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
@@ -240,11 +240,23 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
   }
 
   messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
-  messageBody += `\n\n🤖 _تم إعداد هذا الإشعار آلياً لغرض المتابعة اليومية._`;
+  messageBody += `\n\n🤖 تم إعداد هذا الإشعار آلياً لغرض المتابعة اليومية.`;
 
   let formattedPhone = recipientPhone.trim().replace(/\D/g, "");
   if (formattedPhone.startsWith("00")) {
     formattedPhone = formattedPhone.substring(2);
+  }
+
+  const cleanParamText = (text: any, fallback = "غير محدد"): string => {
+    const str = String(text ?? "").trim();
+    if (!str) return fallback;
+    return str.replace(/[\s\r\n\t]+/g, " ").trim();
+  };
+
+  const count = letters.length;
+  if (count === 0) {
+    logger.info(`No letters to send for role: ${role}`);
+    return;
   }
 
   const metaUrl = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
@@ -253,39 +265,98 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
     "Content-Type": "application/json"
   };
 
-  const payload = {
+  // Build standard beautiful text payload
+  const textPayload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: formattedPhone,
-    type: "template",
-    template: {
-      name: "daily_letters_report",
-      language: {
-        code: "ar"
-      },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            {
-              type: "text",
-              text: messageBody.replace(/[\n\t]+/g, " - ").replace(/\s{5,}/g, "    ")
-            }
-          ]
-        }
-      ]
+    type: "text",
+    text: {
+      preview_url: false,
+      body: messageBody
     }
   };
 
   try {
-    const response = await axios.post(metaUrl, payload, { headers });
-    logger.info(`WhatsApp report successfully sent to "${role}". Meta API Response:`, response.data);
+    // Try sending as standard text first
+    const response = await axios.post(metaUrl, textPayload, { headers });
+    logger.info(`WhatsApp text report successfully sent. Meta Response:`, response.data);
     await addLogToFirestore(recipientPhone, messageBody, "نجاح");
-  } catch (err: any) {
-    const errorDetails = err.response?.data || err.message;
-    logger.error(`Failed to dispatch WhatsApp message to "${role}":`, JSON.stringify(errorDetails));
-    await addLogToFirestore(recipientPhone, messageBody, "فشل", JSON.stringify(errorDetails));
+  } catch (textErr: any) {
+    const textErrorDetails = textErr.response?.data || textErr.message;
+    logger.warn(`WhatsApp text report send failed, falling back to template. Reason:`, JSON.stringify(textErrorDetails));
+
+    // Fallback to Template
+    const firstLetter = letters[0] || {
+      letter_number: "لا يوجد",
+      entity_source: "غير محدد",
+      category: "بلا موضوع",
+      responsible_department: "غير محدد",
+      letter_date: todayStr
+    };
+
+    const topic1 = firstLetter.category || "بلا موضوع";
+    const source1 = firstLetter.entity_source || "غير محدد";
+    const dept1 = firstLetter.responsible_department || "غير محدد";
+    const letterDateStr1 = firstLetter.letter_date || todayStr;
+    const waitingDays1 = getDaysDifference(letterDateStr1, todayStr);
+    const waitingStr1 = formatArabicDays(waitingDays1);
+
+    let remainingText = "";
+    if (count > 1) {
+      letters.slice(1).forEach((item, index) => {
+        const topic = item.category || "بلا موضوع";
+        const source = item.entity_source || "غير محدد";
+        const dept = item.responsible_department || "غير محدد";
+        const letterDateStr = item.letter_date || todayStr;
+        const waitingDays = getDaysDifference(letterDateStr, todayStr);
+        const waitingStr = formatArabicDays(waitingDays);
+
+        remainingText += ` ━━━━━━━━━━━━━━ 📌 رقم الخطاب: ${item.letter_number} 🏢 الجهة الوارد منها: ${source} 📝 الموضوع: ${topic} 👥 الجهة المسؤولة: ${dept} ⏳ مدة الانتظار: ${waitingStr}`;
+      });
+    }
+
+    const cleanedRemaining = cleanParamText(remainingText, "");
+    const sixthParam = cleanParamText(waitingStr1 + (cleanedRemaining ? " ━━━━━━━━━━━━━━━━━━ " + cleanedRemaining : ""), "0");
+
+    const templatePayload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: formattedPhone,
+      type: "template",
+      template: {
+        name: "daily_letters_report",
+        language: {
+          code: "ar"
+        },
+        components: [
+          {
+            type: "body",
+            parameters: [
+              { type: "text", text: cleanParamText(count, "0") },
+              { type: "text", text: cleanParamText(firstLetter.letter_number, "لا يوجد") },
+              { type: "text", text: cleanParamText(source1, "غير محدد") },
+              { type: "text", text: cleanParamText(topic1, "بلا موضوع") },
+              { type: "text", text: cleanParamText(dept1, "غير محدد") },
+              { type: "text", text: sixthParam }
+            ]
+          }
+        ]
+      }
+    };
+
+    try {
+      const templateResponse = await axios.post(metaUrl, templatePayload, { headers });
+      logger.info(`WhatsApp template report successfully sent on fallback. Meta Response:`, templateResponse.data);
+      const loggedBody = `(تنبيه: تم الإرسال عبر القالب البديل)\n` + messageBody;
+      await addLogToFirestore(recipientPhone, loggedBody, "نجاح");
+    } catch (templateErr: any) {
+      const templateErrorDetails = templateErr.response?.data || templateErr.message;
+      logger.error(`Failed to dispatch WhatsApp template report on fallback:`, JSON.stringify(templateErrorDetails));
+      await addLogToFirestore(recipientPhone, messageBody, "فشل", JSON.stringify(templateErrorDetails));
+    }
   }
+}
 }
 
 /**

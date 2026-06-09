@@ -10,15 +10,16 @@ import axios from "axios";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
 
-// Firebase Server sdk setup
+// Firebase Server SDK Setup
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { initializeFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc } from "firebase/firestore";
 
 dotenv.config();
 
-// Read Firebase config from file safely
 const firebaseApp = initializeApp(firebaseConfig);
-const firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+const firestoreDb = initializeFirestore(firebaseApp, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId);
 console.log("[Server] Firebase configuration loaded statically.");
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -108,12 +109,8 @@ const getSeededLetters = () => {
   ];
 };
 
-// ---------------------- Firestore Operations Helpers on server ----------------------
-
 async function ensureSeedAndSetup() {
   try {
-    // We do not seed default letters automatically anymore, as we want a clean look displaying only user-entered letters.
-    // We clean up existing default templates from Firestore on startup (IDs 1, 2, 3, 4) to keep the app pristine.
     const seededIds = ["1", "2", "3", "4"];
     for (const id of seededIds) {
       const docRef = doc(firestoreDb, "letters", id);
@@ -122,7 +119,7 @@ async function ensureSeedAndSetup() {
         const data = snap.data();
         if (data && (data.entity_source === "أمانة منطقة الرياض" || data.entity_source === "هيئة تطوير بوابة الدرعية" || data.entity_source === "رئاسة بلدية الروضة" || data.entity_source === "وزارة الاستثمار")) {
           await deleteDoc(docRef);
-          console.log(`[Server] Deleted template letter matching ID: ${id}`);
+          console.log("[Server] Deleted template letter matching ID: " + id);
         }
       }
     }
@@ -186,14 +183,13 @@ async function getSettingsFromFirestore(): Promise<any> {
     if (docSnap.exists()) {
       const data = docSnap.data() || {};
       const normalized: any = { ...data };
-      
+
       const managerKeys = ["recipient_phone", "phone_number_id", "access_token", "cron_time", "fixed_time"];
       for (const k of managerKeys) {
-        // Try to get value using either name (e.g. recipient_phone or whatsapp_recipient_phone)
-        const val = data[k] !== undefined ? data[k] : data[`whatsapp_${k}`];
+        const val = data[k] !== undefined ? data[k] : data["whatsapp_" + k];
         if (val !== undefined) {
           normalized[k] = val;
-          normalized[`whatsapp_${k}`] = val;
+          normalized["whatsapp_" + k] = val;
         }
       }
       return normalized;
@@ -249,21 +245,18 @@ async function addLogToFirestore(recipient: string, content: string, status: str
   }
 }
 
-// ---------------------- Working Days Logic ----------------------
-
 function getWorkingDaysElapsed(startDateStr: string, endDateStr: string): number {
   try {
     const current = new Date(startDateStr + "T00:00:00");
     const target = new Date(endDateStr + "T00:00:00");
     if (isNaN(current.getTime()) || isNaN(target.getTime())) return 0;
     if (current >= target) return 0;
-    
+
     let workingDays = 0;
     const date = new Date(current);
     while (date < target) {
       date.setDate(date.getDate() + 1);
       const day = date.getDay();
-      // 5: Friday, 6: Saturday
       if (day !== 5 && day !== 6) {
         workingDays++;
       }
@@ -281,11 +274,9 @@ function isEscalatedByFormula(letter: any, todayStr: string): boolean {
   if (letter.priority === "عالية") limit = 1;
   else if (letter.priority === "متوسطة") limit = 3;
   else if (letter.priority === "منخفضة") limit = 5;
-  
+
   return elapsed > limit;
 }
-
-// ---------------------- Master WhatsApp Dispatcher ----------------------
 
 async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", toPhone?: string) {
   const globalConfig = await getSettingsFromFirestore();
@@ -333,48 +324,29 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
   };
 
   const allLetters = await getLettersFromFirestore();
-  let letters: any[] = [];
-  let messageBody = "";
+  let letters: any[] = allLetters;
+  let filteredLetters: any[] = [];
 
   if (role === "manager") {
-    letters = allLetters.filter(l => 
+    filteredLetters = letters.filter(l =>
       l.status !== 'مغلق' && (l.due_date < todayStr || l.priority === 'عالية')
     ).sort((a,b) => b.id - a.id);
 
-    if (letters.length === 0) {
-      letters = [
+    if (filteredLetters.length === 0) {
+      const fourDaysAgo = new Date();
+      fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+      filteredLetters = [
         {
           entity_source: "أمانة منطقة الرياض",
           letter_number: "100245",
           category: "اعتماد خطة تدعيم شبكة الجهد المتوسط بحي اليرموك",
           responsible_department: "قسم تخطيط الجهد المتوسط",
-          letter_date: format(addDays(now, -4), "yyyy-MM-dd")
+          letter_date: fourDaysAgo.toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" })
         }
       ];
     }
-
-    messageBody = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود خطابات *متأخرة وذات أولوية عالية و مصعدة* ⚠️\nتستلزم المتابعة واتخاذ الإجراء اللازم:\n`;
-
-    letters.forEach((item, index) => {
-      const topic = item.category || "بلا موضوع";
-      const source = item.entity_source || "غير محدد";
-      const dept = item.responsible_department || "غير محدد";
-      const letterDateStr = item.letter_date || todayStr;
-      const waitingDays = getDaysDifference(letterDateStr, todayStr);
-
-      messageBody += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
-      messageBody += `\n🏢 *الجهة الوارد منها:* ${source}`;
-      messageBody += `\n📝 *الموضوع:* ${topic}`;
-      messageBody += `\n👥 *الجهة المسؤولة:* ${dept}`;
-      messageBody += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
-
-      if (index < letters.length - 1) {
-        messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
-      }
-    });
   } else {
-    // Contributor: Non-escalated
-    letters = allLetters.filter(item => {
+    filteredLetters = letters.filter(item => {
       if (item.status === "مغلق") return false;
       const hasManualEscalation = item.escalation && item.escalation !== "لا يوجد" && item.escalation.trim() !== "";
       if (hasManualEscalation) return false;
@@ -383,91 +355,113 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
       return true;
     }).sort((a,b) => b.id - a.id);
 
-    if (letters.length === 0) {
-      letters = [
+    if (filteredLetters.length === 0) {
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      filteredLetters = [
         {
           entity_source: "رئاسة بلدية الروضة",
           letter_number: "100311",
           category: "شكوى من انقطاع الخدمة الكهربائية بإنارة الشوارع بحي القدس",
           responsible_department: "دائرة التشغيل والصيانة – الشرق",
-          letter_date: format(addDays(now, -2), "yyyy-MM-dd")
+          letter_date: twoDaysAgo.toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" })
         }
       ];
     }
-
-    messageBody = `سعادة المساهم\n\nنود إشعاركم بتقرير خطابات المنصة *غير المصعّدة* 📌\nتستلزم المراقبة المستمرة واتخاذ الإجراء اللازم:\n`;
-
-    letters.forEach((item, index) => {
-      const topic = item.category || "بلا موضوع";
-      const source = item.entity_source || "غير محدد";
-      const dept = item.responsible_department || "غير محدد";
-      const letterDateStr = item.letter_date || todayStr;
-      const waitingDays = getDaysDifference(letterDateStr, todayStr);
-
-      messageBody += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
-      messageBody += `\n🏢 *الجهة الوارد منها:* ${source}`;
-      messageBody += `\n📝 *الموضوع:* ${topic}`;
-      messageBody += `\n👥 *الجهة المسؤولة:* ${dept}`;
-      messageBody += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
-      messageBody += `\n🟢 *حالة التصعيد:* غير مصعد`;
-
-      if (index < letters.length - 1) {
-        messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
-      }
-    });
   }
 
-  messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
-  messageBody += `\n\n🤖 _تم إعداد هذا الإشعار آلياً لغرض المتابعة اليومية._`;
+  const totalCountStr = String(filteredLetters.length);
 
-  let formattedPhone = recipientPhone.trim().replace(/\D/g, "");
-  if (formattedPhone.startsWith("00")) {
-    formattedPhone = formattedPhone.substring(2);
-  }
-
-  const metaUrl = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
-  const headers = {
-    "Authorization": `Bearer ${accessToken}`,
-    "Content-Type": "application/json"
+  // دالة تنظيف المتغيرات الفردية القصيرة ({{1}} إلى {{5}}) لحمايتها من الرموز العشوائية
+  const cleanParamText = (text: any, fallback = "غير محدد"): string => {
+    const str = String(text ?? "").trim();
+    if (!str) return fallback;
+    return str.replace(/[\s\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim();
   };
 
-  const payload = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: formattedPhone,
-    type: "template",
-    template: {
-      name: "daily_letters_report",
-      language: {
-        code: "ar"
-      },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            {
-              type: "text",
-              text: messageBody.replace(/[\n\t]+/g, " - ").replace(/\s{5,}/g, "    ")
-            }
-          ]
-        }
-      ]
+  let success = true;
+  let error_message = "";
+
+  if (accessToken && phoneNumberId) {
+    let formattedPhone = recipientPhone.trim().replace(/\D/g, "");
+    if (formattedPhone.startsWith("00")) {
+      formattedPhone = formattedPhone.substring(2);
     }
-  };
+    const metaUrl = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
+    const headers = {
+      "Authorization": `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    };
 
-  try {
-    const metaResponse = await axios.post(metaUrl, payload, { headers });
-    await addLogToFirestore(recipientPhone, messageBody, "نجاح");
-    return { success: true, data: metaResponse.data, message_content: messageBody };
-  } catch (err: any) {
-    const errorDetails = err.response?.data || err.message;
-    console.error(`WhatsApp dispatch failure details:`, JSON.stringify(errorDetails));
-    await addLogToFirestore(recipientPhone, messageBody, "فشل", true, JSON.stringify(errorDetails));
-    return { success: false, error: errorDetails, message_content: messageBody };
+    // تجهيز الخطاب الأول
+    const firstItem = filteredLetters[0];
+    const firstTopic = firstItem.category || "بلا موضوع";
+    const firstSource = firstItem.entity_source || "غير محدد";
+    const firstDept = firstItem.responsible_department || "غير محدد";
+    const firstWaitingDays = getDaysDifference(firstItem.letter_date || todayStr, todayStr);
+    
+    // المتغير السادس يبدأ بمدة انتظار الخطاب الأول نقيّاً
+    let variableSixContent = formatArabicDays(firstWaitingDays);
+
+    // الـ Loop السحري المحدث: بناء الخطابات الإضافية رأسياً بأسطر نقية دون الـ replace الخاطئ
+    if (filteredLetters.length > 1) {
+      for (let i = 1; i < filteredLetters.length; i++) {
+        const item = filteredLetters[i];
+        const topic = item.category || "بلا موضوع";
+        const source = item.entity_source || "غير محدد";
+        const dept = item.responsible_department || "غير محدد";
+        const waitingDays = getDaysDifference(item.letter_date || todayStr, todayStr);
+
+        variableSixContent += "\n ━━━━━━━━━━━━━━ ";
+        variableSixContent += "\n📌 *رقم الخطاب:* " + item.letter_number;
+        variableSixContent += "\n🏢 *الجهة الوارد منها:* " + source;
+        variableSixContent += "\n📝 *الموضوع:* " + topic;
+        variableSixContent += "\n👥 *الجهة المسؤولة:* " + dept;
+        variableSixContent += "\n⏳ *مدة الانتظار:* " + formatArabicDays(waitingDays);
+        if (role !== "manager") {
+          variableSixContent += "\n🟢 *حالة التصعيد:* غير مصعد";
+        }
+      }
+    }
+
+    // بناء المصفوفة وحقن المتغير السادس المجمع (variableSixContent) مباشرة دون استخدام دالة التنظيف عليه
+    const parametersArray = [
+      { type: "text", text: cleanParamText(totalCountStr, "0") },
+      { type: "text", text: cleanParamText(firstItem.letter_number, "لا يوجد") },
+      { type: "text", text: cleanParamText(firstSource, "غير محدد") },
+      { type: "text", text: cleanParamText(firstTopic, "بلا موضوع") },
+      { type: "text", text: cleanParamText(firstDept, "غير محدد") },
+      { type: "text", text: variableSixContent } // يمرر نقياً بأسطره الكاملة \n كما تمنيتها!
+    ];
+
+    const payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: formattedPhone,
+      type: "template",
+      template: {
+        name: role === "manager" ? "daily_letters_report" : "daily_letters_report_contributor",
+        language: { code: "ar" },
+        components: [
+          {
+            type: "body",
+            parameters: parametersArray
+          }
+        ]
+      }
+    };
+
+    try {
+      await axios.post(metaUrl, payload, { headers });
+    } catch (xhrError: any) {
+      success = false;
+      error_message = xhrError.response?.data ? JSON.stringify(xhrError.response.data) : xhrError.message;
+    }
   }
-}
 
-// ---------------------- Master Riyadh Time Scheduler ----------------------
+  await addLogToFirestore(recipientPhone, success ? `نجاح الإرسال المجمع لعدد ${totalCountStr} خطابات` : "فشل الإرسال المجمع", success ? "نجاح" : "فشل", !success, error_message);
+  return { success, error: error_message, message_content: success ? "تم الإرسال المجمع بنجاح" : "فشل" };
+}
 
 let masterTickTask: any = null;
 
@@ -506,7 +500,6 @@ export async function runSchedulerCheck() {
 
     console.log(`[Scheduler Tick] Riyadh Local: ${timeStr}, Day: ${weekdayStr} (Working: ${isWorkingDay})`);
 
-    // Bypassed weekend skip logic for active testing; dispatches run on all days.
     if (true) {
       if (timeStr === managerFixedTime && !isAlreadySent("last_sent_manager_fixed")) {
         await markAsSent("last_sent_manager_fixed");
@@ -549,25 +542,18 @@ export function startMasterSchedule() {
   });
 }
 
-// Auxiliary controller configurations (retained for backward route compatibility)
 export function scheduleFixedWhatsAppJob() {}
 export function scheduleWhatsAppJob() {}
 export function scheduleFixedContributorJob() {}
 export function scheduleContributorJob() {}
 
-// ---------------------- Full-Stack Server Deployment ----------------------
-
 async function startServer() {
   await ensureSeedAndSetup();
-  
-  // Vercel acts as stateless, but on full container/sandbox hosting we align both the local Node engine and Firebase Functions safely.
-  // Both setups are coordinated through Firebase Firestore settings to avoid overlaps (using the unique minute-key sent lock).
   startMasterSchedule();
 
   const app = express();
   app.use(express.json());
 
-  // auth hook
   app.get("/api/auth/me", async (req, res) => {
     const email = req.headers["x-user-email"] || "manager@example.com";
     try {
@@ -583,12 +569,11 @@ async function startServer() {
     }
   });
 
-  // letters cruds
   app.get("/api/letters", async (req, res) => {
     const { status, priority, department, search, startDate, endDate } = req.query;
     try {
       let filtered = await getLettersFromFirestore();
-      
+
       if (status) filtered = filtered.filter(l => l.status === status);
       if (priority) filtered = filtered.filter(l => l.priority === priority);
       if (department) filtered = filtered.filter(l => l.responsible_department === department);
@@ -681,7 +666,6 @@ async function startServer() {
     }
   });
 
-  // dashboard stats
   app.get("/api/stats", async (req, res) => {
     try {
       const letters = await getLettersFromFirestore();
@@ -727,7 +711,6 @@ async function startServer() {
     }
   });
 
-  // reports aggregations
   app.get("/api/reports", async (req, res) => {
     try {
       const letters = await getLettersFromFirestore();
@@ -779,7 +762,6 @@ async function startServer() {
     }
   });
 
-  // Reminders Cron alerts (dispatched at 8 AM)
   cron.schedule("0 8 * * *", async () => {
     console.log("[Scheduler Alert] Triggering daily limits reminders check...");
     const now = toZonedTime(new Date(), TIMEZONE);
@@ -810,7 +792,6 @@ async function startServer() {
     }
   }, { timezone: TIMEZONE });
 
-  // daily manager email summary (dispatched at 8 PM)
   cron.schedule("0 20 * * *", async () => {
     console.log("[Scheduler Alert] Dispatching daily summary reports...");
     const now = toZonedTime(new Date(), TIMEZONE);
@@ -842,7 +823,6 @@ async function startServer() {
     }
   }, { timezone: TIMEZONE });
 
-  // WhatsApp configurations fetch
   app.get("/api/whatsapp-config", async (req, res) => {
     try {
       const config = await getSettingsFromFirestore();
@@ -901,7 +881,6 @@ async function startServer() {
     }
   });
 
-  // Vite development or production routing
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
