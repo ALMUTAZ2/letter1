@@ -6,7 +6,7 @@ import { toZonedTime } from "date-fns-tz";
 import { Resend } from "resend";
 import dotenv from "dotenv";
 import axios from "axios";
-import firebaseConfig from "./firebase-applet-config.json";
+import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
 
 // Firebase Server SDK Setup
 import { initializeApp } from "firebase/app";
@@ -305,7 +305,7 @@ export async function sendWhatsAppReport(role: "manager" | "contributor" = "mana
       const appUrl = globalConfig.app_url || "https://ais-pre-7e7ueomjufef2e4zagaeqs-415170015555.europe-west2.run.app";
       const link = reportDocId ? `${appUrl}/share-report?id=${reportDocId}` : "";
 
-      const CHUNK_SIZE = 3;
+      const CHUNK_SIZE = filteredLetters.length > 0 ? filteredLetters.length : 1;
       for (let chunkIndex = 0; chunkIndex < filteredLetters.length; chunkIndex += CHUNK_SIZE) {
         const currentChunk = filteredLetters.slice(chunkIndex, chunkIndex + CHUNK_SIZE);
 
@@ -318,7 +318,7 @@ export async function sendWhatsAppReport(role: "manager" | "contributor" = "mana
           let durationStr = formatArabicDays(waitingDays);
           if (waitingDays < 0) durationStr = `${waitingDays} يوم`;
 
-          horizontalText += `📌 *رقم الخطاب:* ${item.letter_number} | 🏢 *الجهة:* ${source} | 📝 *الموضوع:* ${topic} | 👥 *المسؤول:* ${dept} | ⏳ *المدة:* ${durationStr} | 🟢 *التصعيد:* غير مصعد`;
+          horizontalText += `📌${item.letter_number}|🏢${source}|📝${topic}|👥${dept}|⏳${durationStr}|🟢غير مصعد`;
           
           if (idx < currentChunk.length - 1) {
             horizontalText += ` ーーーー `;
@@ -326,14 +326,10 @@ export async function sendWhatsAppReport(role: "manager" | "contributor" = "mana
         });
 
         let chunkCountStr = String(totalCount);
-        if (totalCount > CHUNK_SIZE) {
-          chunkCountStr = `${totalCount} (الدفعة ${chunkIndex / CHUNK_SIZE + 1})`;
-        }
 
         let whatsappParam2 = horizontalText;
-        if (link && chunkIndex + CHUNK_SIZE >= filteredLetters.length) {
-            // Append link ONLY on the last chunk
-            whatsappParam2 += ` ーーーー 🔗 لنسخ التقرير المنسق عمودياً بشكل فخم، افتح الرابط: ${link}`;
+        if (link) {
+            whatsappParam2 += ` ーーーー 🔗 لنسخ التقرير، افتح الرابط: ${link}`;
         }
 
         // WhatsApp templates cannot contain newlines or multiple consecutive spaces in parameters
@@ -364,11 +360,11 @@ export async function sendWhatsAppReport(role: "manager" | "contributor" = "mana
 
         try {
           await axios.post(metaUrl, payload, { headers });
-          console.log(`[Meta API] Contributor Pack ${chunkIndex / CHUNK_SIZE + 1} sent successfully.`);
+          console.log(`[Meta API] Contributor Pack sent successfully.`);
           
           await addLogToFirestore(
             recipientPhone,
-            `تم إرسال تقرير المساهم (الدفعة ${chunkIndex / CHUNK_SIZE + 1}) بنجاح.`,
+            `تم إرسال تقرير المساهم بنجاح. يحتوي على ${currentChunk.length} خطاب.`,
             "نجاح",
             false
           );
@@ -380,7 +376,7 @@ export async function sendWhatsAppReport(role: "manager" | "contributor" = "mana
 
           await addLogToFirestore(
             recipientPhone,
-            `فشل إرسال تقرير المساهم (الدفعة ${chunkIndex / CHUNK_SIZE + 1}).`,
+            `فشل إرسال تقرير المساهم.`,
             "فشل",
             true,
             errMessage
@@ -538,6 +534,10 @@ export async function runSchedulerCheck() {
 }
 
 export function startMasterSchedule() {
+  if (process.env.VERCEL) {
+    console.log("[Scheduler] Skipping node-cron boot on Vercel, relying on /api/scheduler-tick");
+    return;
+  }
   if (masterTickTask) {
     masterTickTask.stop();
     masterTickTask = null;
