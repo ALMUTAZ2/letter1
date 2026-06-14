@@ -15,8 +15,15 @@ export default function App() {
 
   useEffect(() => {
     fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => setUser(data));
+      .then((res) => {
+        if (!res.ok) throw new Error("API error");
+        return res.json();
+      })
+      .then((data) => setUser(data))
+      .catch((err) => {
+        console.error("Auth fetch failed:", err);
+        setUser({ email: "error@example.com", name: "خطأ في الاتصال", role: "staff" });
+      });
 
     // Active polling block for Cloud Run scheduler ticks
     const interval = setInterval(() => {

@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import cron from "node-cron";
 import { format, addDays, startOfWeek, endOfWeek } from "date-fns";
@@ -7,8 +6,7 @@ import { toZonedTime } from "date-fns-tz";
 import { Resend } from "resend";
 import dotenv from "dotenv";
 import axios from "axios";
-import fs from "fs";
-const firebaseConfig = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf8"));
+import firebaseConfig from "./firebase-applet-config.json";
 
 // Firebase Server SDK Setup
 import { initializeApp } from "firebase/app";
@@ -878,6 +876,7 @@ startMasterSchedule();
 
   async function startDevServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
