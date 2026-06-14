@@ -465,6 +465,28 @@ export default function WhatsAppSettings() {
                       </div>
                     </div>
                   )}
+
+                  {/* دليل حل مشكلة صلاحية الرمز أو انتهاء المدة رمز 131005 */}
+                  {((testLog.error?.error?.code === 131005) || JSON.stringify(testLog.error).toLowerCase().includes("131005") || JSON.stringify(testLog.error).toLowerCase().includes("access denied") || JSON.stringify(testLog.error).toLowerCase().includes("oauthexception") || JSON.stringify(testLog.error).toLowerCase().includes("token")) && (
+                    <div className="bg-rose-50 border border-rose-200 p-5 rounded-2xl text-slate-800 space-y-3 font-sans" dir="rtl">
+                      <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
+                        <AlertTriangle size={18} />
+                        <span>💡 سبب المشكلة وحلها الفوري (رمز الوصول غير صالح أو منتهي الصلاحية):</span>
+                      </div>
+                      <p className="text-xs leading-relaxed text-slate-600">
+                        الـ <strong>Access Token (رمز الوصول الخاص بـ Meta)</strong> المستخدم حالياً منتهي الصلاحية (حيث ينتهي الرمز المؤقت تلقائياً بعد 24 ساعة)، أو لا يمتلك الصلاحيات المطلوبة لإجراء مكالمات الإرسال لمنتج الواتساب.
+                      </p>
+                      
+                      <div className="text-xs space-y-2 text-slate-700 bg-white/75 p-3.5 rounded-xl border border-rose-100 leading-relaxed">
+                        <span className="font-bold text-slate-900 text-[13px] block mb-1">خطوات توليد رمز وصول جديد وتفعيله في ثوانٍ:</span>
+                        <p><strong>1.</strong> اذهب إلى موقع <a href="https://developers.facebook.com" target="_blank" rel="noreferrer" className="text-blue-600 font-bold hover:underline">بوابة مطوري فيسبوك Meta Developers</a> وسجل دخولك.</p>
+                        <p><strong>2.</strong> افتح لوحة تحكم تطبيقك المربوط بالواتساب، واختر من الجانب الأيمن <strong>WhatsApp</strong> ثم اضغط على <strong>API Setup</strong>.</p>
+                        <p><strong>3.</strong> تحت قسم <strong>"Temporary access token"</strong> في الأعلى، ستجد رمز الوصول الـ Token الجديد. قم بنسخه بالكامل.</p>
+                        <p><strong>4.</strong> عُد إلى هذه الصفحة، وحدد تبويب التفعيل النشط، ثم الصق الرمز الجديد ليكون بدلاً من المنتهي في حقل <strong>"الرمز الدائم المعتمد (Access Token)"</strong> بالنموذج أعلاه.</p>
+                        <p><strong>5.</strong> اضغط على زر <strong>"حفظ الإعدادات"</strong> لتثبيت التحديث الدائم بنجاح، ثم أعد الضغط على <strong>"إرسال التقرير فوراً"</strong> لتجربته بنجاح تام!</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

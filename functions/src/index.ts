@@ -112,6 +112,18 @@ async function addLogToFirestore(recipient: string, content: string, status: str
 }
 
 /**
+ * Cleans template parameters to prevent Meta API validation errors
+ */
+function cleanParamText(text: any, fallback = "غير حدد"): string {
+  let str = String(text ?? "").trim();
+  if (!str) return fallback;
+  str = str.replace(/[\r\n\t]/g, " ");
+  str = str.replace(/\s+/g, " ");
+  str = str.replace(/\s{2,}/g, " ");
+  return str.trim();
+}
+
+/**
  * Builds and dispatches the WhatsApp notification message to Meta WhatsApp Cloud API
  */
 async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig: any, allLetters: any[], todayStr: string): Promise<void> {
@@ -167,7 +179,7 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       ];
     }
 
-    messageBody = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود خطابات متأخرة وذات أولوية عالية و مصعدة ⚠️\nتستلزم المتابعة واتخاذ الإجراء اللازم:\n`;
+    messageBody = `سعادة مدير الإدارة\n\nنود إشعاركم بوجود *خطابات متأخرة وذات أولوية عالية و مصعدة بعدد ( ${letters.length} ) خطابات* ⚠️\nتستلزم المتابعة واتخاذ الإجراء اللازم:\n`;
 
     letters.forEach((item, index) => {
       const topic = item.category || "بلا موضوع";
@@ -176,14 +188,14 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       const letterDateStr = item.letter_date || todayStr;
       const waitingDays = getDaysDifference(letterDateStr, todayStr);
 
-      messageBody += `\n📌 رقم الخطاب: ${item.letter_number}`;
-      messageBody += `\n🏢 الجهة الوارد منها: ${source}`;
-      messageBody += `\n📝 الموضوع: ${topic}`;
-      messageBody += `\n👥 الجهة المسؤولة: ${dept}`;
-      messageBody += `\n⏳ مدة الانتظار: ${formatArabicDays(waitingDays)}`;
+      messageBody += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
+      messageBody += `\n🏢 *الجهة الوارد منها:* ${source}`;
+      messageBody += `\n📝 *الموضوع:* ${topic}`;
+      messageBody += `\n👥 *الجهة المسؤولة:* ${dept}`;
+      messageBody += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
 
       if (index < letters.length - 1) {
-        messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
+        messageBody += `\n\n ━━━━━━━━━━━━━━ \n`;
       }
     });
 
@@ -217,7 +229,7 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       ];
     }
 
-    messageBody = `سعادة المساهم\n\nنود إشعاركم بتقرير خطابات المنصة غير المصعّدة 📌\nتستلزم المراقبة المستمرة واتخاذ الإجراء اللازم:\n`;
+    messageBody = `سعادة المساهم\n\nنود إشعاركم بتقرير خطابات المنصة غير المصعّدة بعدد ( ${letters.length} ) خطابات 📌\nتستلزم المراقبة المستمرة واتخاذ الإجراء اللازم:\n`;
 
     letters.forEach((item, index) => {
       const topic = item.category || "بلا موضوع";
@@ -226,32 +238,25 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
       const letterDateStr = item.letter_date || todayStr;
       const waitingDays = getDaysDifference(letterDateStr, todayStr);
 
-      messageBody += `\n📌 رقم الخطاب: ${item.letter_number}`;
-      messageBody += `\n🏢 الجهة الوارد منها: ${source}`;
-      messageBody += `\n📝 الموضوع: ${topic}`;
-      messageBody += `\n👥 الجهة المسؤولة: ${dept}`;
-      messageBody += `\n⏳ مدة الانتظار: ${formatArabicDays(waitingDays)}`;
-      messageBody += `\n🟢 حالة التصعيد: غير مصعد`;
+      messageBody += `\n📌 *رقم الخطاب:* ${item.letter_number}`;
+      messageBody += `\n🏢 *الجهة الوارد منها:* ${source}`;
+      messageBody += `\n📝 *الموضوع:* ${topic}`;
+      messageBody += `\n👥 *الجهة المسؤولة:* ${dept}`;
+      messageBody += `\n⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
+      messageBody += `\n🟢 *حالة التصعيد:* غير مصعد`;
 
       if (index < letters.length - 1) {
-        messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
+        messageBody += `\n\n ━━━━━━━━━━━━━━ \n`;
       }
     });
   }
 
-  messageBody += `\n\n━━━━━━━━━━━━━━━━━━`;
-  messageBody += `\n\n🤖 تم إعداد هذا الإشعار آلياً لغرض المتابعة اليومية.`;
+  messageBody += `\n\n🤖 _تم إعداد هذا الإشعار آلياً لغرض المتابعة اليومية._`;
 
   let formattedPhone = recipientPhone.trim().replace(/\D/g, "");
   if (formattedPhone.startsWith("00")) {
     formattedPhone = formattedPhone.substring(2);
   }
-
-  const cleanParamText = (text: any, fallback = "غير محدد"): string => {
-    const str = String(text ?? "").trim();
-    if (!str) return fallback;
-    return str.replace(/[\s\r\n\t]+/g, " ").trim();
-  };
 
   const count = letters.length;
   if (count === 0) {
@@ -265,96 +270,85 @@ async function sendWhatsAppReport(role: "manager" | "contributor", globalConfig:
     "Content-Type": "application/json"
   };
 
-  // Build standard beautiful text payload
-  const textPayload = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: formattedPhone,
-    type: "text",
-    text: {
-      preview_url: false,
-      body: messageBody
-    }
-  };
+  // تحديد طريقة الإرسال بناء على الإعدادات من قاعدة البيانات
+  const dispatchMethod = "template"; // يتم الإرسال دائماً عبر القالب الموحد لضمان الترتيب المتوافق مع شاشة الجوال
 
-  try {
-    // Try sending as standard text first
-    const response = await axios.post(metaUrl, textPayload, { headers });
-    logger.info(`WhatsApp text report successfully sent. Meta Response:`, response.data);
-    await addLogToFirestore(recipientPhone, messageBody, "نجاح");
-  } catch (textErr: any) {
-    const textErrorDetails = textErr.response?.data || textErr.message;
-    logger.warn(`WhatsApp text report send failed, falling back to template. Reason:`, JSON.stringify(textErrorDetails));
+  let payload: any = {};
 
-    // Fallback to Template
-    const firstLetter = letters[0] || {
-      letter_number: "لا يوجد",
-      entity_source: "غير محدد",
-      category: "بلا موضوع",
-      responsible_department: "غير محدد",
-      letter_date: todayStr
-    };
+  if (dispatchMethod === "template") {
+    // تجهيز مصفوفة الـ 13 متغيراً بالقيمة الافتراضية (مسافة مخفية شفافة "‎") لحماية المظهر
+    let templateParams: string[] = Array(13).fill("‎");
 
-    const topic1 = firstLetter.category || "بلا موضوع";
-    const source1 = firstLetter.entity_source || "غير محدد";
-    const dept1 = firstLetter.responsible_department || "غير محدد";
-    const letterDateStr1 = firstLetter.letter_date || todayStr;
-    const waitingDays1 = getDaysDifference(letterDateStr1, todayStr);
-    const waitingStr1 = formatArabicDays(waitingDays1);
+    // المقعد الأول {{1}} محجوز دائماً لإجمالي عدد الخطابات في الترويسة
+    templateParams[0] = cleanParamText(count);
 
-    let remainingText = "";
-    if (count > 1) {
-      letters.slice(1).forEach((item, index) => {
-        const topic = item.category || "بلا موضوع";
-        const source = item.entity_source || "غير محدد";
-        const dept = item.responsible_department || "غير محدد";
+    // تعبئة المقاعد من {{2}} إلى {{13}} بالخطابات المتاحة (بحد أقصى 12 خطاباً بداخل الرسالة)
+    for (let i = 0; i < 12; i++) {
+      if (letters[i]) {
+        const item = letters[i];
+        const topic = (item.category || "بلا موضوع").trim();
+        const source = (item.entity_source || "غير محدد").trim();
+        const dept = (item.responsible_department || "غير محدد").trim();
         const letterDateStr = item.letter_date || todayStr;
         const waitingDays = getDaysDifference(letterDateStr, todayStr);
-        const waitingStr = formatArabicDays(waitingDays);
 
-        remainingText += ` ━━━━━━━━━━━━━━ 📌 رقم الخطاب: ${item.letter_number} 🏢 الجهة الوارد منها: ${source} 📝 الموضوع: ${topic} 👥 الجهة المسؤولة: ${dept} ⏳ مدة الانتظار: ${waitingStr}`;
-      });
+        // بناء نص الخطاب ككتلة واحدة مستقرة وبدون علامات أسطر برمجية \n لتلافي رفض Meta
+        let letterBlock = `📌 *رقم الخطاب:* ${item.letter_number} ┇ 🏢 *الجهة الوارد منها:* ${source} ┇ 📝 *الموضوع:* ${topic} ┇ 👥 *الجهة المسؤولة:* ${dept} ┇ ⏳ *مدة الانتظار:* ${formatArabicDays(waitingDays)}`;
+        
+        // إضافة خط فاصل بين الخطابات بداخل كتل المتغيرات بدون أسطر جديدة لتفادي رفض Meta
+        if (i > 0) {
+          letterBlock = ` 🔸 ` + letterBlock;
+        }
+
+        templateParams[i + 1] = cleanParamText(letterBlock);
+      } else {
+        break;
+      }
     }
 
-    const cleanedRemaining = cleanParamText(remainingText, "");
-    const sixthParam = cleanParamText(waitingStr1 + (cleanedRemaining ? " ━━━━━━━━━━━━━━━━━━ " + cleanedRemaining : ""), "0");
+    // تحويل المصفوفة إلى الهيكل البرمجي المطلوب لـ Meta API
+    const parametersPayload = templateParams.map(text => ({
+      type: "text",
+      text: text
+    }));
 
-    const templatePayload = {
+    payload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: formattedPhone,
       type: "template",
       template: {
-        name: "daily_letters_report",
-        language: {
-          code: "ar"
-        },
+        name: role === "manager" ? "daily_letters_report" : "daily_letters_report_contributor",
+        language: { code: "ar" },
         components: [
           {
             type: "body",
-            parameters: [
-              { type: "text", text: cleanParamText(count, "0") },
-              { type: "text", text: cleanParamText(firstLetter.letter_number, "لا يوجد") },
-              { type: "text", text: cleanParamText(source1, "غير محدد") },
-              { type: "text", text: cleanParamText(topic1, "بلا موضوع") },
-              { type: "text", text: cleanParamText(dept1, "غير محدد") },
-              { type: "text", text: sixthParam }
-            ]
+            parameters: parametersPayload
           }
         ]
       }
     };
+  } else {
+    payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: formattedPhone,
+      type: "text",
+      text: {
+        preview_url: false,
+        body: messageBody
+      }
+    };
+  }
 
-    try {
-      const templateResponse = await axios.post(metaUrl, templatePayload, { headers });
-      logger.info(`WhatsApp template report successfully sent on fallback. Meta Response:`, templateResponse.data);
-      const loggedBody = `(تنبيه: تم الإرسال عبر القالب البديل)\n` + messageBody;
-      await addLogToFirestore(recipientPhone, loggedBody, "نجاح");
-    } catch (templateErr: any) {
-      const templateErrorDetails = templateErr.response?.data || templateErr.message;
-      logger.error(`Failed to dispatch WhatsApp template report on fallback:`, JSON.stringify(templateErrorDetails));
-      await addLogToFirestore(recipientPhone, messageBody, "فشل", JSON.stringify(templateErrorDetails));
-    }
+  try {
+    const response = await axios.post(metaUrl, payload, { headers });
+    logger.info(`WhatsApp report successfully sent. Meta Response:`, response.data);
+    await addLogToFirestore(recipientPhone, messageBody, "نجاح");
+  } catch (textErr: any) {
+    const textErrorDetails = textErr.response?.data || textErr.message;
+    logger.error(`Failed to dispatch WhatsApp report:`, JSON.stringify(textErrorDetails));
+    await addLogToFirestore(recipientPhone, messageBody, "فشل", JSON.stringify(textErrorDetails));
   }
 }
 }

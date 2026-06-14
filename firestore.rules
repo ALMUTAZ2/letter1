@@ -1,25 +1,14 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Catch-All Global Deny Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
     // Helper Primitives
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
     // Letters collection rules
     match /letters/{letterId} {
-      allow read: if true; // Public or authenticated read to let tracking lookups succeed
-      allow write: if true; // Allow client/server writes for letters
+      allow read, write: if true;
     }
 
     // Settings collection rules
@@ -35,6 +24,16 @@ service cloud.firestore {
     // WhatsApp logs collection rules
     match /whatsapp_logs/{logId} {
       allow read, write: if true;
+    }
+
+    // Reports collection rules
+    match /reports/{reportId} {
+      allow read, write: if true;
+    }
+    
+    // Catch-All Global Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

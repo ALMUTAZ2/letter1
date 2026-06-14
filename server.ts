@@ -7,126 +7,22 @@ import { toZonedTime } from "date-fns-tz";
 import { Resend } from "resend";
 import dotenv from "dotenv";
 import axios from "axios";
-import { readFileSync, writeFileSync, existsSync } from "fs";
 import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
 
 // Firebase Server SDK Setup
 import { initializeApp } from "firebase/app";
-import { initializeFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { getFirestore, collection, doc, getDocs, getDoc, setDoc, deleteDoc, addDoc } from "firebase/firestore";
 
 dotenv.config();
 
 const firebaseApp = initializeApp(firebaseConfig);
-const firestoreDb = initializeFirestore(firebaseApp, {
-  experimentalForceLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId);
+const firestoreDb = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 console.log("[Server] Firebase configuration loaded statically.");
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const TIMEZONE = "Asia/Riyadh";
 
-const getSeededLetters = () => {
-  const now = new Date();
-  const formatYMD = (d: Date) => d.toISOString().split("T")[0];
-  const addDaysHelper = (d: Date, days: number) => {
-    const res = new Date(d);
-    res.setDate(res.getDate() + days);
-    return res;
-  };
-  
-  return [
-    {
-      id: 1,
-      entity_source: "أمانة منطقة الرياض",
-      letter_number: "100245",
-      letter_date: formatYMD(addDaysHelper(now, -4)),
-      category: "اعتماد خطة تدعيم شبكة الجهد المتوسط بحي اليرموك",
-      responsible_department: "دائرة تخطيط الشبكات",
-      owner: "م. فيصل المطيري",
-      priority: "عالية",
-      due_date: formatYMD(addDaysHelper(now, -3)),
-      status: "جديد",
-      escalation: "حرج جداً لدواعٍ فنية",
-      notes: "تم مراجعة المخططات المبادئية للحي وتحتاج تصديق المدير المالي للمنطقة الشرقية.",
-      action_taken: "بانتظار الرد",
-      created_at: new Date(addDaysHelper(now, -4)).toISOString(),
-      updated_at: new Date(addDaysHelper(now, -4)).toISOString()
-    },
-    {
-      id: 2,
-      entity_source: "هيئة تطوير بوابة الدرعية",
-      letter_number: "100289",
-      letter_date: formatYMD(addDaysHelper(now, -3)),
-      category: "طلب موافقة فنية لربط محطة تحويل فرعية تابعة لمشروع تجاري",
-      responsible_department: "دائرة التشغيل والصيانة – الشرق",
-      owner: "أ. خالد القحطاني",
-      priority: "عالية",
-      due_date: formatYMD(addDaysHelper(now, -2)),
-      status: "جديد",
-      escalation: "طلب عاجل من الهيئة",
-      notes: "توصية بربط المحطة مع مغذي المغرزات الرئيسي لتحقيق التكرارية المطلوبة.",
-      action_taken: "بانتظار الرد",
-      created_at: new Date(addDaysHelper(now, -3)).toISOString(),
-      updated_at: new Date(addDaysHelper(now, -3)).toISOString()
-    },
-    {
-      id: 3,
-      entity_source: "رئاسة بلدية الروضة",
-      letter_number: "100311",
-      letter_date: formatYMD(addDaysHelper(now, -2)),
-      category: "شكوى من انقطاع الخدمة الكهربائية بإنارة الشوارع بحي القدس",
-      responsible_department: "دائرة التشغيل والصيانة – الشرق",
-      owner: "م. سامر العنزي",
-      priority: "متوسطة",
-      due_date: formatYMD(addDaysHelper(now, 1)),
-      status: "الحاقي",
-      escalation: "لا يوجد",
-      notes: "جاري فحص كابلات الجهد المنخفض بالحي لتفادي التكرار وسحب خط بديل.",
-      action_taken: "بانتظار الرد",
-      created_at: new Date(addDaysHelper(now, -2)).toISOString(),
-      updated_at: new Date(addDaysHelper(now, -2)).toISOString()
-    },
-    {
-      id: 4,
-      entity_source: "وزارة الاستثمار",
-      letter_number: "100192",
-      letter_date: formatYMD(addDaysHelper(now, -10)),
-      category: "تحديث اشتراطات ربط الطاقة للمشروعات ذات الهوية الأجنبية بالرياض",
-      responsible_department: "دائرة دعم التشغيل والصيانة",
-      owner: "م. ناصر الحارثي",
-      priority: "منخفضة",
-      due_date: formatYMD(addDaysHelper(now, -5)),
-      status: "مغلق",
-      escalation: "لا يوجد",
-      notes: "تم إرسال الخطاب الصادر واستلام إشعار تأكيد الاستلام من الوزارة بنجاح وتم إرفاق رقم الصادر المعتمد.",
-      outgoing_letter_number: "ص-209-X",
-      outgoing_letter_date: formatYMD(addDaysHelper(now, -6)),
-      action_taken: "تم الرد",
-      close_date: formatYMD(addDaysHelper(now, -6)),
-      created_at: new Date(addDaysHelper(now, -10)).toISOString(),
-      updated_at: new Date(addDaysHelper(now, -10)).toISOString()
-    }
-  ];
-};
-
 async function ensureSeedAndSetup() {
-  try {
-    const seededIds = ["1", "2", "3", "4"];
-    for (const id of seededIds) {
-      const docRef = doc(firestoreDb, "letters", id);
-      const snap = await getDoc(docRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data && (data.entity_source === "أمانة منطقة الرياض" || data.entity_source === "هيئة تطوير بوابة الدرعية" || data.entity_source === "رئاسة بلدية الروضة" || data.entity_source === "وزارة الاستثمار")) {
-          await deleteDoc(docRef);
-          console.log("[Server] Deleted template letter matching ID: " + id);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("[Server Init] Letters cleanup/checks failed:", err);
-  }
-
   try {
     const usersSnap = await getDocs(collection(firestoreDb, "users"));
     if (usersSnap.empty) {
@@ -140,21 +36,51 @@ async function ensureSeedAndSetup() {
 
   try {
     const settingsSnap = await getDoc(doc(firestoreDb, "settings", "global"));
+    const newToken = "EAAOZASL5k18gBRiMDPF0ttY0PJXYxRl88FwPLdZBGuZAZBGeOLOMJmB6ZBlswxSiPOmxqxE4LhFXKAgsgHfcPLGOMgh9wdbBZAiuXde0OuC1kS9SQ7e6fyLTc8Uc8bp6ZC5UYyAFBEP2LdziTSZBsMa9HYZA8ZBfO80VMiYssz1fRtaWXYzNeQMZCgLIYCTShh7zwZDZD";
+    const oldTokens = [
+      "EAAOZASL5k18gBRgxcQrOPMZCLIqwZC9zdJdnRiSXiKcIs6EKhe2AiSwzrFrx9HkEb5APXZAVQ3DDOQqqcWxAlE8CzQZCuCZAiwlPWKyo2RfnpaeYvuqnmlZC4X3hT7nDOJ4IVGzitWmdIfBID3VXr3JAdSSjEdBZBfAAvBgOI9OygbmD78pGmmbaZAKiQCRgVtQZDZD",
+      "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD"
+    ];
+
     if (!settingsSnap.exists()) {
       console.log("[Server Init] Seeding Firestore default configurations...");
       const initialSettings = {
         whatsapp_recipient_phone: "+966507668366",
         whatsapp_phone_number_id: "1148865668308769",
-        whatsapp_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+        whatsapp_access_token: newToken,
         whatsapp_cron_time: "12:15",
         whatsapp_fixed_time: "12:19",
         contributor_recipient_phone: "+966566889475",
         contributor_phone_number_id: "1148865668308769",
-        contributor_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+        contributor_access_token: newToken,
         contributor_cron_time: "12:20",
         contributor_fixed_time: "12:25"
       };
       await setDoc(doc(firestoreDb, "settings", "global"), initialSettings);
+    } else {
+      const currentData = settingsSnap.data() || {};
+      const updates: any = {};
+      let needsUpdate = false;
+
+      // Migrate ONLY if the actual token stored matches one of the old/expired tokens
+      const fieldsToCheck = [
+        "whatsapp_access_token",
+        "contributor_access_token",
+        "access_token"
+      ];
+
+      for (const field of fieldsToCheck) {
+        const val = currentData[field];
+        if (val && oldTokens.includes(val.trim())) {
+          updates[field] = newToken;
+          needsUpdate = true;
+        }
+      }
+
+      if (needsUpdate) {
+        console.log("[Server Init] Overwriting expired old token in Firestore settings...");
+        await setDoc(doc(firestoreDb, "settings", "global"), updates, { merge: true });
+      }
     }
   } catch (err) {
     console.error("[Server Init] Settings seeding failed:", err);
@@ -200,20 +126,15 @@ async function getSettingsFromFirestore(): Promise<any> {
   return {
     whatsapp_recipient_phone: "+966507668366",
     whatsapp_phone_number_id: "1148865668308769",
-    whatsapp_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+    whatsapp_access_token: "EAAOZASL5k18gBRiMDPF0ttY0PJXYxRl88FwPLdZBGuZAZBGeOLOMJmB6ZBlswxSiPOmxqxE4LhFXKAgsgHfcPLGOMgh9wdbBZAiuXde0OuC1kS9SQ7e6fyLTc8Uc8bp6ZC5UYyAFBEP2LdziTSZBsMa9HYZA8ZBfO80VMiYssz1fRtaWXYzNeQMZCgLIYCTShh7zwZDZD",
     whatsapp_cron_time: "12:15",
     whatsapp_fixed_time: "12:19",
     contributor_recipient_phone: "+966566889475",
     contributor_phone_number_id: "1148865668308769",
-    contributor_access_token: "EAAOZASL5k18gBRkPFCnEzJOs1yxklW16txxkX3dOtxz8lLGZC8wNRmMlZAoEbNlhpCIOGDt2cvh16TWdbRxyOSiA1FNPBonyyj3oGQCIimcIpNexQT0pVx0N0hsZBO3GtvaDAXDiTEtDeqVE4fJPu1EzPE5RwyxejsLrEmtK1dyDWli1s13Ecpp3Gd384XSbpQZDZD",
+    contributor_access_token: "EAAOZASL5k18gBRiMDPF0ttY0PJXYxRl88FwPLdZBGuZAZBGeOLOMJmB6ZBlswxSiPOmxqxE4LhFXKAgsgHfcPLGOMgh9wdbBZAiuXde0OuC1kS9SQ7e6fyLTc8Uc8bp6ZC5UYyAFBEP2LdziTSZBsMa9HYZA8ZBfO80VMiYssz1fRtaWXYzNeQMZCgLIYCTShh7zwZDZD",
     contributor_cron_time: "12:20",
     contributor_fixed_time: "12:25"
   };
-}
-
-async function getSettingFromFirestore(key: string, defaultValue: string): Promise<string> {
-  const settings = await getSettingsFromFirestore();
-  return settings[key] !== undefined ? String(settings[key]) : defaultValue;
 }
 
 async function getLogsFromFirestore(): Promise<any[]> {
@@ -278,7 +199,7 @@ function isEscalatedByFormula(letter: any, todayStr: string): boolean {
   return elapsed > limit;
 }
 
-async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", toPhone?: string) {
+export async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", toPhone?: string) {
   const globalConfig = await getSettingsFromFirestore();
 
   let recipientPhone = "";
@@ -286,19 +207,19 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
   let accessToken = "";
 
   if (role === "manager") {
-    recipientPhone = toPhone || globalConfig.whatsapp_recipient_phone || "+966507668366";
-    phoneNumberId = globalConfig.whatsapp_phone_number_id || "1148865668308769";
-    accessToken = globalConfig.whatsapp_access_token || "";
+    recipientPhone = toPhone || globalConfig.whatsapp_recipient_phone || globalConfig.recipient_phone || "+966507668366";
+    phoneNumberId = globalConfig.whatsapp_phone_number_id || globalConfig.phone_number_id || "1148865668308769";
+    accessToken = (globalConfig.whatsapp_access_token || globalConfig.access_token || "EAAOZASL5k18gBRiMDPF0ttY0PJXYxRl88FwPLdZBGuZAZBGeOLOMJmB6ZBlswxSiPOmxqxE4LhFXKAgsgHfcPLGOMgh9wdbBZAiuXde0OuC1kS9SQ7e6fyLTc8Uc8bp6ZC5UYyAFBEP2LdziTSZBsMa9HYZA8ZBfO80VMiYssz1fRtaWXYzNeQMZCgLIYCTShh7zwZDZD").trim();
   } else {
-    const managerPhoneId = globalConfig.whatsapp_phone_number_id || "1148865668308769";
-    const managerToken = globalConfig.whatsapp_access_token || "";
+    const managerPhoneId = globalConfig.whatsapp_phone_number_id || globalConfig.phone_number_id || "1148865668308769";
+    const managerToken = (globalConfig.whatsapp_access_token || globalConfig.access_token || "EAAOZASL5k18gBRiMDPF0ttY0PJXYxRl88FwPLdZBGuZAZBGeOLOMJmB6ZBlswxSiPOmxqxE4LhFXKAgsgHfcPLGOMgh9wdbBZAiuXde0OuC1kS9SQ7e6fyLTc8Uc8bp6ZC5UYyAFBEP2LdziTSZBsMa9HYZA8ZBfO80VMiYssz1fRtaWXYzNeQMZCgLIYCTShh7zwZDZD").trim();
 
     recipientPhone = toPhone || globalConfig.contributor_recipient_phone || "+966566889475";
     phoneNumberId = (globalConfig.contributor_phone_number_id || "").trim() || managerPhoneId;
-    accessToken = (globalConfig.contributor_access_token || "").trim() || managerToken;
+    accessToken = (globalConfig.contributor_access_token || managerToken).trim();
   }
 
-  console.log(`Sending WhatsApp (${role}) Report to: ${recipientPhone} via ID: ${phoneNumberId}`);
+  console.log(`Sending Pure 21-Param Chunked Template Report to: ${recipientPhone}`);
 
   const now = toZonedTime(new Date(), TIMEZONE);
   const todayStr = format(now, "yyyy-MM-dd");
@@ -307,12 +228,8 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
     try {
       const d1 = new Date(oldDateStr + "T00:00:00");
       const d2 = new Date(newDateStr + "T00:00:00");
-      const diffTime = d2.getTime() - d1.getTime();
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      return diffDays >= 0 ? diffDays : 0;
-    } catch (e) {
-      return 0;
-    }
+      return Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+    } catch (e) { return 0; }
   };
 
   const formatArabicDays = (days: number): string => {
@@ -324,143 +241,233 @@ async function sendWhatsAppReport(role: "manager" | "contributor" = "manager", t
   };
 
   const allLetters = await getLettersFromFirestore();
-  let letters: any[] = allLetters;
   let filteredLetters: any[] = [];
-
+  
   if (role === "manager") {
-    filteredLetters = letters.filter(l =>
+    filteredLetters = allLetters.filter(l =>
       l.status !== 'مغلق' && (l.due_date < todayStr || l.priority === 'عالية')
-    ).sort((a,b) => b.id - a.id);
-
-    if (filteredLetters.length === 0) {
-      const fourDaysAgo = new Date();
-      fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-      filteredLetters = [
-        {
-          entity_source: "أمانة منطقة الرياض",
-          letter_number: "100245",
-          category: "اعتماد خطة تدعيم شبكة الجهد المتوسط بحي اليرموك",
-          responsible_department: "قسم تخطيط الجهد المتوسط",
-          letter_date: fourDaysAgo.toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" })
-        }
-      ];
-    }
+    );
   } else {
-    filteredLetters = letters.filter(item => {
-      if (item.status === "مغلق") return false;
-      const hasManualEscalation = item.escalation && item.escalation !== "لا يوجد" && item.escalation.trim() !== "";
-      if (hasManualEscalation) return false;
-      const hasFormulaEscalation = isEscalatedByFormula(item, todayStr);
-      if (hasFormulaEscalation) return false;
-      return true;
-    }).sort((a,b) => b.id - a.id);
-
-    if (filteredLetters.length === 0) {
-      const twoDaysAgo = new Date();
-      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-      filteredLetters = [
-        {
-          entity_source: "رئاسة بلدية الروضة",
-          letter_number: "100311",
-          category: "شكوى من انقطاع الخدمة الكهربائية بإنارة الشوارع بحي القدس",
-          responsible_department: "دائرة التشغيل والصيانة – الشرق",
-          letter_date: twoDaysAgo.toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" })
-        }
-      ];
-    }
+    filteredLetters = allLetters.filter(l =>
+      l.status !== 'مغلق' && !isEscalatedByFormula(l, todayStr)
+    );
   }
 
-  const totalCountStr = String(filteredLetters.length);
+  filteredLetters = filteredLetters.sort((a, b) => b.id - a.id);
 
-  // دالة تنظيف المتغيرات الفردية القصيرة ({{1}} إلى {{5}}) لحمايتها من الرموز العشوائية
-  const cleanParamText = (text: any, fallback = "غير محدد"): string => {
-    const str = String(text ?? "").trim();
-    if (!str) return fallback;
-    return str.replace(/[\s\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim();
-  };
+  const totalCount = filteredLetters.length;
+  if (totalCount === 0) return { success: true, message: "No letters to report." };
 
-  let success = true;
-  let error_message = "";
+  let overallSuccess = true;
+  let lastError = "";
 
   if (accessToken && phoneNumberId) {
     let formattedPhone = recipientPhone.trim().replace(/\D/g, "");
-    if (formattedPhone.startsWith("00")) {
-      formattedPhone = formattedPhone.substring(2);
-    }
+    if (formattedPhone.startsWith("00")) formattedPhone = formattedPhone.substring(2);
+
     const metaUrl = `https://graph.facebook.com/v18.0/${phoneNumberId}/messages`;
-    const headers = {
-      "Authorization": `Bearer ${accessToken}`,
-      "Content-Type": "application/json"
-    };
+    const headers = { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" };
 
-    // تجهيز الخطاب الأول
-    const firstItem = filteredLetters[0];
-    const firstTopic = firstItem.category || "بلا موضوع";
-    const firstSource = firstItem.entity_source || "غير محدد";
-    const firstDept = firstItem.responsible_department || "غير محدد";
-    const firstWaitingDays = getDaysDifference(firstItem.letter_date || todayStr, todayStr);
-    
-    // المتغير السادس يبدأ بمدة انتظار الخطاب الأول نقيّاً
-    let variableSixContent = formatArabicDays(firstWaitingDays);
+    if (role === "contributor") {
+      let verticalText = `عزيزي المساهم\n`;
+      verticalText += `نود إشعاركم بوجود خطابات *غير مصعدة بعدد ( ${filteredLetters.length} ) خطابات* ⚠️\n`;
+      verticalText += `تستلزم المتابعة المستمرة واتخاذ الإجراء اللازم\n\n`;
+      verticalText += `تفاصيل الخطابات:\n`;
 
-    // الـ Loop السحري المحدث: بناء الخطابات الإضافية رأسياً بأسطر نقية دون الـ replace الخاطئ
-    if (filteredLetters.length > 1) {
-      for (let i = 1; i < filteredLetters.length; i++) {
-        const item = filteredLetters[i];
-        const topic = item.category || "بلا موضوع";
-        const source = item.entity_source || "غير محدد";
-        const dept = item.responsible_department || "غير محدد";
+      filteredLetters.forEach((item, idx) => {
+        const topic = (item.category || "بلا موضوع").trim();
+        const source = (item.entity_source || "غير محدد").trim();
+        const dept = (item.responsible_department || "غير محدد").trim();
         const waitingDays = getDaysDifference(item.letter_date || todayStr, todayStr);
+        let durationStr = formatArabicDays(waitingDays);
+        if (waitingDays < 0) durationStr = `${waitingDays} يوم`;
 
-        variableSixContent += "\n ━━━━━━━━━━━━━━ ";
-        variableSixContent += "\n📌 *رقم الخطاب:* " + item.letter_number;
-        variableSixContent += "\n🏢 *الجهة الوارد منها:* " + source;
-        variableSixContent += "\n📝 *الموضوع:* " + topic;
-        variableSixContent += "\n👥 *الجهة المسؤولة:* " + dept;
-        variableSixContent += "\n⏳ *مدة الانتظار:* " + formatArabicDays(waitingDays);
-        if (role !== "manager") {
-          variableSixContent += "\n🟢 *حالة التصعيد:* غير مصعد";
+        verticalText += `📌 *رقم الخطاب:* ${item.letter_number}\n🏢 *الجهة:* ${source}\n📝 *الموضوع:* ${topic}\n👥 *المسؤول:* ${dept}\n⏳ *المدة:* ${durationStr}\n🟢 *التصعيد:* غير مصعد`;
+        
+        if (idx < filteredLetters.length - 1) {
+          verticalText += `\n\n`;
+        }
+      });
+      
+      verticalText += `\n\n🤖 _تم إعداد هذا التقرير آلياً لغرض المتابعة اليومية._`;
+
+      let reportDocId = "report_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      try {
+        const reportDocRef = doc(firestoreDb, "settings", reportDocId);
+        await setDoc(reportDocRef, {
+          text: verticalText,
+          createdAt: new Date().toISOString()
+        });
+      } catch (err: any) {
+        console.error("Firestore Reports Error:", err);
+        reportDocId = "";
+      }
+
+      const appUrl = globalConfig.app_url || "https://ais-pre-7e7ueomjufef2e4zagaeqs-415170015555.europe-west2.run.app";
+      const link = reportDocId ? `${appUrl}/share-report?id=${reportDocId}` : "";
+
+      const CHUNK_SIZE = 3;
+      for (let chunkIndex = 0; chunkIndex < filteredLetters.length; chunkIndex += CHUNK_SIZE) {
+        const currentChunk = filteredLetters.slice(chunkIndex, chunkIndex + CHUNK_SIZE);
+
+        let horizontalText = "";
+        currentChunk.forEach((item, idx) => {
+          const topic = (item.category || "بلا موضوع").trim();
+          const source = (item.entity_source || "غير محدد").trim();
+          const dept = (item.responsible_department || "غير محدد").trim();
+          const waitingDays = getDaysDifference(item.letter_date || todayStr, todayStr);
+          let durationStr = formatArabicDays(waitingDays);
+          if (waitingDays < 0) durationStr = `${waitingDays} يوم`;
+
+          horizontalText += `📌 *رقم الخطاب:* ${item.letter_number} | 🏢 *الجهة:* ${source} | 📝 *الموضوع:* ${topic} | 👥 *المسؤول:* ${dept} | ⏳ *المدة:* ${durationStr} | 🟢 *التصعيد:* غير مصعد`;
+          
+          if (idx < currentChunk.length - 1) {
+            horizontalText += ` ーーーー `;
+          }
+        });
+
+        let chunkCountStr = String(totalCount);
+        if (totalCount > CHUNK_SIZE) {
+          chunkCountStr = `${totalCount} (الدفعة ${chunkIndex / CHUNK_SIZE + 1})`;
+        }
+
+        let whatsappParam2 = horizontalText;
+        if (link && chunkIndex + CHUNK_SIZE >= filteredLetters.length) {
+            // Append link ONLY on the last chunk
+            whatsappParam2 += ` ーーーー 🔗 لنسخ التقرير المنسق عمودياً بشكل فخم، افتح الرابط: ${link}`;
+        }
+
+        // WhatsApp templates cannot contain newlines or multiple consecutive spaces in parameters
+        whatsappParam2 = whatsappParam2.replace(/[\n\r\t]/g, " ").replace(/ {2,}/g, " ").trim();
+        chunkCountStr = chunkCountStr.replace(/[\n\r\t]/g, " ").replace(/ {2,}/g, " ").trim();
+
+        const parametersPayload = [
+          { type: "text", text: chunkCountStr.substring(0, 1024) },
+          { type: "text", text: whatsappParam2.substring(0, 1024) }
+        ];
+
+        const payload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: formattedPhone,
+          type: "template",
+          template: {
+            name: "daily_letters_report_contributor",
+            language: { code: "ar" },
+            components: [
+              { 
+                type: "body", 
+                parameters: parametersPayload 
+              }
+            ]
+          }
+        };
+
+        try {
+          await axios.post(metaUrl, payload, { headers });
+          console.log(`[Meta API] Contributor Pack ${chunkIndex / CHUNK_SIZE + 1} sent successfully.`);
+          
+          await addLogToFirestore(
+            recipientPhone,
+            `تم إرسال تقرير المساهم (الدفعة ${chunkIndex / CHUNK_SIZE + 1}) بنجاح.`,
+            "نجاح",
+            false
+          );
+        } catch (xhrError: any) {
+          overallSuccess = false;
+          const errMessage = xhrError.response?.data ? JSON.stringify(xhrError.response.data) : xhrError.message;
+          lastError = errMessage;
+          console.error("Meta API Contributor Error:", errMessage);
+
+          await addLogToFirestore(
+            recipientPhone,
+            `فشل إرسال تقرير المساهم (الدفعة ${chunkIndex / CHUNK_SIZE + 1}).`,
+            "فشل",
+            true,
+            errMessage
+          );
+        }
+      }
+    } else {
+      const CHUNK_SIZE = 4;
+
+      for (let chunkIndex = 0; chunkIndex < filteredLetters.length; chunkIndex += CHUNK_SIZE) {
+        const currentChunk = filteredLetters.slice(chunkIndex, chunkIndex + CHUNK_SIZE);
+
+        let templateParams: string[] = Array(21).fill("‎");
+
+        if (totalCount > CHUNK_SIZE) {
+          templateParams[0] = `(${chunkIndex + 1} إلى ${Math.min(chunkIndex + CHUNK_SIZE, totalCount)}) من أصل ${totalCount}`;
+        } else {
+          templateParams[0] = String(totalCount);
+        }
+
+        for (let i = 0; i < CHUNK_SIZE; i++) {
+          if (currentChunk[i]) {
+            const item = currentChunk[i];
+            const topic = (item.category || "بلا موضوع").trim();
+            const source = (item.entity_source || "غير محدد").trim();
+            const dept = (item.responsible_department || "غير محدد").trim();
+            const waitingDays = getDaysDifference(item.letter_date || todayStr, todayStr);
+
+            const baseIndex = 1 + (i * 5);
+
+            templateParams[baseIndex]     = String(item.letter_number).trim();
+            templateParams[baseIndex + 1] = String(source).trim();
+            templateParams[baseIndex + 2] = String(topic).trim();
+            templateParams[baseIndex + 3] = String(dept).trim();
+            templateParams[baseIndex + 4] = formatArabicDays(waitingDays);
+          } else {
+            break;
+          }
+        }
+
+        const parametersPayload = templateParams.map(text => ({ type: "text", text: text }));
+
+        const payload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: formattedPhone,
+          type: "template",
+          template: {
+            name: "daily_letters_report",
+            language: { code: "ar" },
+            components: [{ type: "body", parameters: parametersPayload }]
+          }
+        };
+
+        try {
+          await axios.post(metaUrl, payload, { headers });
+          console.log(`[Meta API] Clean Pack ${chunkIndex / CHUNK_SIZE + 1} sent successfully.`);
+
+          await addLogToFirestore(
+            recipientPhone,
+            `تم إرسال حزمة التقرير (21 متغير) بنجاح للدفعة ${chunkIndex / CHUNK_SIZE + 1} لعدد ${currentChunk.length} خطابات من المنصة.`,
+            "نجاح",
+            false
+          );
+        } catch (xhrError: any) {
+          overallSuccess = false;
+          const errMessage = xhrError.response?.data ? JSON.stringify(xhrError.response.data) : xhrError.message;
+          lastError = errMessage;
+          console.error("Meta API Pure Parameter Error:", errMessage);
+
+          await addLogToFirestore(
+            recipientPhone,
+            `فشل إرسال حزمة التقرير (21 متغير) للدفعة ${chunkIndex / CHUNK_SIZE + 1}`,
+            "فشل",
+            true,
+            errMessage
+          );
         }
       }
     }
-
-    // بناء المصفوفة وحقن المتغير السادس المجمع (variableSixContent) مباشرة دون استخدام دالة التنظيف عليه
-    const parametersArray = [
-      { type: "text", text: cleanParamText(totalCountStr, "0") },
-      { type: "text", text: cleanParamText(firstItem.letter_number, "لا يوجد") },
-      { type: "text", text: cleanParamText(firstSource, "غير محدد") },
-      { type: "text", text: cleanParamText(firstTopic, "بلا موضوع") },
-      { type: "text", text: cleanParamText(firstDept, "غير محدد") },
-      { type: "text", text: variableSixContent } // يمرر نقياً بأسطره الكاملة \n كما تمنيتها!
-    ];
-
-    const payload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: formattedPhone,
-      type: "template",
-      template: {
-        name: role === "manager" ? "daily_letters_report" : "daily_letters_report_contributor",
-        language: { code: "ar" },
-        components: [
-          {
-            type: "body",
-            parameters: parametersArray
-          }
-        ]
-      }
-    };
-
-    try {
-      await axios.post(metaUrl, payload, { headers });
-    } catch (xhrError: any) {
-      success = false;
-      error_message = xhrError.response?.data ? JSON.stringify(xhrError.response.data) : xhrError.message;
-    }
+  } else {
+    overallSuccess = false;
+    lastError = "Missing access token or phone number ID in WhatsApp configuration.";
   }
 
-  await addLogToFirestore(recipientPhone, success ? `نجاح الإرسال المجمع لعدد ${totalCountStr} خطابات` : "فشل الإرسال المجمع", success ? "نجاح" : "فشل", !success, error_message);
-  return { success, error: error_message, message_content: success ? "تم الإرسال المجمع بنجاح" : "فشل" };
+  return { success: overallSuccess, error: lastError, message_content: overallSuccess ? "تم الإرسال بنجاح" : "فشل" };
 }
 
 let masterTickTask: any = null;
@@ -500,6 +507,7 @@ export async function runSchedulerCheck() {
 
     console.log(`[Scheduler Tick] Riyadh Local: ${timeStr}, Day: ${weekdayStr} (Working: ${isWorkingDay})`);
 
+    // We can run report dispatches on scheduled minutes (independent of weekday checking if desired, or skip on Fri/Sat if strictly requested)
     if (true) {
       if (timeStr === managerFixedTime && !isAlreadySent("last_sent_manager_fixed")) {
         await markAsSent("last_sent_manager_fixed");
@@ -566,6 +574,20 @@ async function startServer() {
       res.json(user || { email, role: "staff" });
     } catch (e) {
       res.json({ email, role: "staff" });
+    }
+  });
+
+  app.get("/api/reports/:id", async (req, res) => {
+    try {
+      const docRef = doc(firestoreDb, "settings", req.params.id);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        res.json({ success: true, text: snap.data().text });
+      } else {
+        res.status(404).json({ success: false, error: "Report not found" });
+      }
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
     }
   });
 
@@ -762,67 +784,6 @@ async function startServer() {
     }
   });
 
-  cron.schedule("0 8 * * *", async () => {
-    console.log("[Scheduler Alert] Triggering daily limits reminders check...");
-    const now = toZonedTime(new Date(), TIMEZONE);
-    const todayStr = format(now, "yyyy-MM-dd");
-    const in1Day = format(addDays(now, 1), "yyyy-MM-dd");
-    const in3Days = format(addDays(now, 3), "yyyy-MM-dd");
-
-    const letters = await getLettersFromFirestore();
-    const lettersToRemind = letters.filter(l => 
-      l.status !== 'مغلق' && (l.due_date === todayStr || l.due_date === in1Day || l.due_date === in3Days)
-    );
-
-    if (lettersToRemind.length > 0 && resend) {
-      for (const letter of lettersToRemind) {
-        await resend.emails.send({
-          from: 'Letters Tracker <onboarding@resend.dev>',
-          to: 'manager@example.com',
-          subject: `تذكير: خطاب رقم ${letter.letter_number} يستحق الرد قريباً`,
-          html: `<div dir="rtl">
-            <h2>تذكير بموعد استحقاق خطاب</h2>
-            <p>الجهة: ${letter.entity_source}</p>
-            <p>رقم الخطاب: ${letter.letter_number}</p>
-            <p>تاريخ الاستحقاق: ${letter.due_date}</p>
-            <p>الأولوية: ${letter.priority}</p>
-          </div>`
-        });
-      }
-    }
-  }, { timezone: TIMEZONE });
-
-  cron.schedule("0 20 * * *", async () => {
-    console.log("[Scheduler Alert] Dispatching daily summary reports...");
-    const now = toZonedTime(new Date(), TIMEZONE);
-    const tomorrowStr = format(addDays(now, 1), "yyyy-MM-dd");
-    const todayStr = format(now, "yyyy-MM-dd");
-
-    const letters = await getLettersFromFirestore();
-    const openLetters = letters.filter(l => l.status !== 'مغلق');
-
-    const dueTomorrow = openLetters.filter(l => l.due_date === tomorrowStr);
-    const overdue = openLetters.filter(l => l.due_date < todayStr);
-    const highPriority = openLetters.filter(l => l.priority === 'عالية');
-
-    if (resend) {
-      await resend.emails.send({
-        from: 'Letters Tracker <onboarding@resend.dev>',
-        to: 'manager@example.com',
-        subject: 'الملخص اليومي لمنصة تتبع الخطابات',
-        html: `<div dir="rtl">
-          <h2>الملخص اليومي</h2>
-          <h3>خطابات تستحق غداً (${dueTomorrow.length}):</h3>
-          <ul>${dueTomorrow.map(l => `<li>${l.letter_number} - ${l.entity_source}</li>`).join('')}</ul>
-          <h3>خطابات متأخرة (${overdue.length}):</h3>
-          <ul>${overdue.map(l => `<li>${l.letter_number} - ${l.entity_source}</li>`).join('')}</ul>
-          <h3>خطابات عالية الأهمية (${highPriority.length}):</h3>
-          <ul>${highPriority.map(l => `<li>${l.letter_number} - ${l.entity_source}</li>`).join('')}</ul>
-        </div>`
-      });
-    }
-  }, { timezone: TIMEZONE });
-
   app.get("/api/whatsapp-config", async (req, res) => {
     try {
       const config = await getSettingsFromFirestore();
@@ -835,8 +796,8 @@ async function startServer() {
         cron_time: config.whatsapp_cron_time || "12:15",
         fixed_time: config.whatsapp_fixed_time || "12:19",
         contributor_recipient_phone: config.contributor_recipient_phone || "+966566889475",
-        contributor_phone_number_id: config.contributor_phone_number_id || "1148865668308769",
-        contributor_access_token: config.contributor_access_token || "",
+        phone_number_id_contributor: config.contributor_phone_number_id || "1148865668308769",
+        access_token_contributor: config.contributor_access_token || "",
         contributor_cron_time: config.contributor_cron_time || "12:20",
         contributor_fixed_time: config.contributor_fixed_time || "12:25",
         logs
@@ -849,11 +810,36 @@ async function startServer() {
   app.post("/api/whatsapp-config", async (req, res) => {
     try {
       const body = req.body;
+      const updates: any = {};
+
       for (const [key, val] of Object.entries(body)) {
         if (val !== undefined) {
-          await setDoc(doc(firestoreDb, "settings", "global"), { [key]: val }, { merge: true });
+          updates[key] = val;
         }
       }
+
+      // Sync prefixed versions of the configurations as well for compatibility and back-checking
+      if (updates.access_token !== undefined) {
+        updates.whatsapp_access_token = updates.access_token;
+        updates.contributor_access_token = updates.access_token;
+      }
+      if (updates.phone_number_id !== undefined) {
+        updates.whatsapp_phone_number_id = updates.phone_number_id;
+        updates.contributor_phone_number_id = updates.phone_number_id;
+      }
+      if (updates.recipient_phone !== undefined) {
+        updates.whatsapp_recipient_phone = updates.recipient_phone;
+      }
+      if (updates.cron_time !== undefined) {
+        updates.whatsapp_cron_time = updates.cron_time;
+        updates.contributor_cron_time = updates.cron_time;
+      }
+      if (updates.fixed_time !== undefined) {
+        updates.whatsapp_fixed_time = updates.fixed_time;
+        updates.contributor_fixed_time = updates.fixed_time;
+      }
+
+      await setDoc(doc(firestoreDb, "settings", "global"), updates, { merge: true });
       
       await runSchedulerCheck();
       res.json({ success: true });
@@ -872,12 +858,17 @@ async function startServer() {
   });
 
   app.post("/api/send-whatsapp-test", async (req, res) => {
-    const { to_phone, role } = req.body;
-    const result = await sendWhatsAppReport(role || "manager", to_phone);
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(500).json(result);
+    try {
+      const { to_phone, role } = req.body;
+      const result = await sendWhatsAppReport(role || "manager", to_phone);
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(500).json(result);
+      }
+    } catch (e: any) {
+      console.error("Unhandled Exception in sendWhatsAppReport:", e);
+      res.status(500).json({ success: false, error: e.message, stack: e.stack });
     }
   });
 
