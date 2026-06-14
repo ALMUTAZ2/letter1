@@ -7,7 +7,8 @@ import { toZonedTime } from "date-fns-tz";
 import { Resend } from "resend";
 import dotenv from "dotenv";
 import axios from "axios";
-import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
+import fs from "fs";
+const firebaseConfig = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf8"));
 
 // Firebase Server SDK Setup
 import { initializeApp } from "firebase/app";
@@ -555,12 +556,15 @@ export function scheduleWhatsAppJob() {}
 export function scheduleFixedContributorJob() {}
 export function scheduleContributorJob() {}
 
-async function startServer() {
-  await ensureSeedAndSetup();
-  startMasterSchedule();
+const app = express();
+app.use(express.json());
 
-  const app = express();
-  app.use(express.json());
+// Run seed asynchronously without blocking
+ensureSeedAndSetup().catch(console.error);
+startMasterSchedule();
+
+// Keep everything below in app as routes, and wrap the Vite/listen logic
+
 
   app.get("/api/auth/me", async (req, res) => {
     const email = req.headers["x-user-email"] || "manager@example.com";
@@ -872,6 +876,7 @@ async function startServer() {
     }
   });
 
+  async function startDevServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -885,10 +890,19 @@ async function startServer() {
     });
   }
 
-  const PORT = 3000;
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server executing natively on http://0.0.0.0:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    const PORT = 3000;
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server executing natively on http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startDevServer();
+} else {
+  // On Vercel, serve static files (Vite build output) as fallback for unmatched routes
+  app.use(express.static(path.join(process.cwd(), "dist")));
+}
+
+export default app;
